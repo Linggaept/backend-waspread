@@ -4,6 +4,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { QueueModule } from './queue/queue.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 import { databaseConfig, redisConfig, appConfig } from './config';
 
 @Module({
@@ -20,6 +22,10 @@ import { databaseConfig, redisConfig, appConfig } from './config';
 
     // Queue system
     QueueModule,
+
+    // Feature modules
+    AuthModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
