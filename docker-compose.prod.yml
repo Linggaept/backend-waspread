@@ -4,13 +4,12 @@ services:
   backend:
     build:
       context: .
-      target: development
-    command: npm run start:dev
+      target: production
     ports:
       - "${APP_PORT:-3000}:${APP_PORT:-3000}"
     environment:
       - APP_PORT=${APP_PORT:-3000}
-      - APP_NODE_ENV=${APP_NODE_ENV:-development}
+      - APP_NODE_ENV=production
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME}
@@ -24,35 +23,32 @@ services:
       - MIDTRANS_CLIENT_KEY=${MIDTRANS_CLIENT_KEY}
       - MIDTRANS_IS_PRODUCTION=${MIDTRANS_IS_PRODUCTION}
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
       - .wwebjs_auth:/usr/src/app/.wwebjs_auth
       - .wwebjs_cache:/usr/src/app/.wwebjs_cache
     depends_on:
       - postgres
       - redis
+    restart: always
     networks:
       - waspread-network
 
   postgres:
     image: postgres:15-alpine
-    ports:
-      - "${DB_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_DATABASE}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: always
     networks:
       - waspread-network
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+    restart: always
     networks:
       - waspread-network
 

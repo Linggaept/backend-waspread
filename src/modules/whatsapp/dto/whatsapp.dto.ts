@@ -31,7 +31,7 @@ export class SendMessageDto {
 }
 
 export class SendBulkMessageDto {
-  @ApiProperty({ example: ['628123456789', '628987654321'], description: 'List of phone numbers' })
+  @ApiProperty({ example: ['628123456789', '628987654331'], description: 'List of phone numbers' })
   @IsArray()
   @IsString({ each: true })
   phoneNumbers: string[];

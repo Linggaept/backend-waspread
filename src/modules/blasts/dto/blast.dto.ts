@@ -10,7 +10,7 @@ export class CreateBlastDto {
   @IsString()
   message: string;
 
-  @ApiProperty({ example: ['628123456789', '628987654321'], description: 'Target phone numbers' })
+  @ApiProperty({ example: ['628123456789', '628987654331'], description: 'Target phone numbers' })
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
