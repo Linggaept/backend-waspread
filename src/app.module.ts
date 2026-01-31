@@ -12,6 +12,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { BlastsModule } from './modules/blasts/blasts.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { HealthModule } from './modules/health/health.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
@@ -38,6 +39,7 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config
     WhatsAppModule,
     BlastsModule,
     ReportsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
