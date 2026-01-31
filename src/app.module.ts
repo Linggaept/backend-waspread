@@ -6,14 +6,17 @@ import { DatabaseModule } from './database/database.module';
 import { QueueModule } from './queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { databaseConfig, redisConfig, appConfig } from './config';
+import { PackagesModule } from './modules/packages/packages.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
   imports: [
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, redisConfig, appConfig],
+      load: [databaseConfig, redisConfig, appConfig, midtransConfig],
       envFilePath: ['.env'],
     }),
 
@@ -26,6 +29,9 @@ import { databaseConfig, redisConfig, appConfig } from './config';
     // Feature modules
     AuthModule,
     UsersModule,
+    PackagesModule,
+    PaymentsModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { User } from './entities/user.entity';
+import { Package } from './entities/package.entity';
+import { Payment } from './entities/payment.entity';
+import { Subscription } from './entities/subscription.entity';
 
 @Module({
   imports: [
@@ -15,7 +18,7 @@ import { User } from './entities/user.entity';
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
-        entities: [User],
+        entities: [User, Package, Payment, Subscription],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         synchronize: configService.get<string>('app.nodeEnv') === 'development',
         logging: configService.get<string>('app.nodeEnv') === 'development',
