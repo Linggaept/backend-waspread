@@ -10,6 +10,7 @@ import { PackagesModule } from './modules/packages/packages.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { BlastsModule } from './modules/blasts/blasts.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
@@ -34,6 +35,7 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config
     PaymentsModule,
     SubscriptionsModule,
     WhatsAppModule,
+    BlastsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

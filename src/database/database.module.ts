@@ -6,6 +6,7 @@ import { Package } from './entities/package.entity';
 import { Payment } from './entities/payment.entity';
 import { Subscription } from './entities/subscription.entity';
 import { WhatsAppSession } from './entities/whatsapp-session.entity';
+import { Blast, BlastMessage } from './entities/blast.entity';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { WhatsAppSession } from './entities/whatsapp-session.entity';
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
-        entities: [User, Package, Payment, Subscription, WhatsAppSession],
+        entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         synchronize: configService.get<string>('app.nodeEnv') === 'development',
         logging: configService.get<string>('app.nodeEnv') === 'development',
