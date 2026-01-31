@@ -9,27 +9,39 @@ import {
   Header,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProduces } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
-import { DateRangeDto } from './dto';
+import {
+  DateRangeDto,
+  DashboardStatsDto,
+  BlastReportDto,
+  MessageReportDto,
+  AdminUserReportDto,
+  RevenueReportDto,
+} from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 
+@ApiTags('Reports')
+@ApiBearerAuth('JWT-auth')
 @Controller('reports')
 @UseGuards(JwtAuthGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  // User Dashboard
   @Get('dashboard')
+  @ApiOperation({ summary: 'Get user dashboard stats' })
+  @ApiResponse({ status: 200, description: 'Dashboard stats', type: DashboardStatsDto })
   getDashboard(@CurrentUser('id') userId: string) {
     return this.reportsService.getDashboardStats(userId);
   }
 
-  // User Blast Reports
   @Get('blasts')
+  @ApiOperation({ summary: 'Get blast reports with date filter' })
+  @ApiResponse({ status: 200, description: 'List of blast reports', type: [BlastReportDto] })
   getBlastReports(
     @CurrentUser('id') userId: string,
     @Query() dateRange: DateRangeDto,
@@ -41,8 +53,9 @@ export class ReportsController {
     );
   }
 
-  // Message Report for specific blast
   @Get('blasts/:id/messages')
+  @ApiOperation({ summary: 'Get message details for a blast' })
+  @ApiResponse({ status: 200, description: 'List of message details', type: [MessageReportDto] })
   getMessageReport(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -50,9 +63,11 @@ export class ReportsController {
     return this.reportsService.getMessageReport(userId, id);
   }
 
-  // Export blast messages to CSV
   @Get('blasts/:id/export')
   @Header('Content-Type', 'text/csv')
+  @ApiProduces('text/csv')
+  @ApiOperation({ summary: 'Export blast messages to CSV' })
+  @ApiResponse({ status: 200, description: 'CSV file download' })
   async exportBlast(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -63,9 +78,11 @@ export class ReportsController {
     res.send(csv);
   }
 
-  // Export all blasts to CSV
   @Get('export')
   @Header('Content-Type', 'text/csv')
+  @ApiProduces('text/csv')
+  @ApiOperation({ summary: 'Export all blasts to CSV' })
+  @ApiResponse({ status: 200, description: 'CSV file download' })
   async exportAllBlasts(
     @CurrentUser('id') userId: string,
     @Res() res: Response,
@@ -75,26 +92,29 @@ export class ReportsController {
     res.send(csv);
   }
 
-  // Admin: Dashboard
   @Get('admin/dashboard')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get admin dashboard stats' })
+  @ApiResponse({ status: 200, description: 'Admin dashboard stats' })
   getAdminDashboard() {
     return this.reportsService.getAdminDashboard();
   }
 
-  // Admin: User Reports
   @Get('admin/users')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get user activity reports' })
+  @ApiResponse({ status: 200, description: 'User activity reports', type: [AdminUserReportDto] })
   getUserReports() {
     return this.reportsService.getAdminUserReports();
   }
 
-  // Admin: Revenue Report
   @Get('admin/revenue')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get revenue report' })
+  @ApiResponse({ status: 200, description: 'Revenue report', type: RevenueReportDto })
   getRevenueReport(@Query() dateRange: DateRangeDto) {
     return this.reportsService.getRevenueReport(
       dateRange.startDate,

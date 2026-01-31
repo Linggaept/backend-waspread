@@ -7,6 +7,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -15,13 +16,16 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { SendMessageDto } from './dto';
 
+@ApiTags('WhatsApp')
+@ApiBearerAuth('JWT-auth')
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard)
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) {}
 
-  // Initialize/Connect WhatsApp session
   @Post('connect')
+  @ApiOperation({ summary: 'Initialize/Connect WhatsApp session' })
+  @ApiResponse({ status: 201, description: 'Session initialized, returns QR code if needed' })
   async connect(@CurrentUser('id') userId: string) {
     try {
       return await this.whatsappService.initializeSession(userId);
@@ -30,15 +34,17 @@ export class WhatsAppController {
     }
   }
 
-  // Disconnect session
   @Delete('disconnect')
+  @ApiOperation({ summary: 'Disconnect session' })
+  @ApiResponse({ status: 200, description: 'Session disconnected' })
   async disconnect(@CurrentUser('id') userId: string) {
     await this.whatsappService.disconnectSession(userId);
     return { message: 'Session disconnected successfully' };
   }
 
-  // Get session status
   @Get('status')
+  @ApiOperation({ summary: 'Get session status' })
+  @ApiResponse({ status: 200, description: 'Current session status and readiness' })
   async getStatus(@CurrentUser('id') userId: string) {
     const session = await this.whatsappService.getSessionStatus(userId);
     const isReady = await this.whatsappService.isSessionReady(userId);
@@ -49,8 +55,10 @@ export class WhatsAppController {
     };
   }
 
-  // Send a single message
   @Post('send')
+  @ApiOperation({ summary: 'Send a single message' })
+  @ApiResponse({ status: 201, description: 'Message sent successfully' })
+  @ApiResponse({ status: 400, description: 'Session not ready or send failed' })
   async sendMessage(
     @CurrentUser('id') userId: string,
     @Body() sendMessageDto: SendMessageDto,
@@ -72,10 +80,11 @@ export class WhatsAppController {
     }
   }
 
-  // Admin: Get all sessions
   @Get('sessions')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get all sessions (Admin)' })
+  @ApiResponse({ status: 200, description: 'List of all user sessions' })
   async getAllSessions() {
     return this.whatsappService.getAllSessions();
   }
