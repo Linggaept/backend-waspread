@@ -11,6 +11,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { BlastsModule } from './modules/blasts/blasts.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
@@ -36,6 +37,7 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config
     SubscriptionsModule,
     WhatsAppModule,
     BlastsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
