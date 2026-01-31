@@ -1,4 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Client, LocalAuth } from 'whatsapp-web.js';
@@ -28,14 +30,17 @@ export class WhatsAppService implements OnModuleDestroy {
     for (const [userId, instance] of this.clients) {
       try {
         await instance.client.destroy();
+        this.cleanupSessionLock(userId);
         this.logger.log(`Client destroyed for user ${userId}`);
       } catch (error) {
         this.logger.error(`Error destroying client for user ${userId}`, error);
+        // Still try to cleanup locks even if destroy fails
+        this.cleanupSessionLock(userId);
       }
     }
   }
 
-  async initializeSession(userId: string): Promise<{ status: string; qrCode?: string }> {
+  async initializeSession(userId: string, retryCount = 0): Promise<{ status: string; qrCode?: string }> {
     // Check if client already exists
     if (this.clients.has(userId)) {
       const instance = this.clients.get(userId)!;
@@ -53,6 +58,9 @@ export class WhatsAppService implements OnModuleDestroy {
     // Create new client
     const session = await this.getOrCreateSession(userId);
     await this.updateSessionStatus(userId, SessionStatus.CONNECTING);
+
+    // Proactively cleanup any stale lock files before starting
+    this.cleanupSessionLock(userId);
 
     const client = new Client({
       authStrategy: new LocalAuth({
@@ -91,9 +99,67 @@ export class WhatsAppService implements OnModuleDestroy {
       };
     } catch (error) {
       this.logger.error(`Failed to initialize client for user ${userId}`, error);
-      await this.updateSessionStatus(userId, SessionStatus.FAILED, String(error));
+      
+      // Try to destroy client to free resources
+      try { await client.destroy(); } catch (e) {} 
       this.clients.delete(userId);
+
+      const errorMsg = String(error);
+      if (errorMsg.includes('locked the profile') || errorMsg.includes('Code: 21') || errorMsg.includes('SingletonLock')) {
+        if (retryCount < 2) {
+          this.logger.warn(`Profile locked for user ${userId}, cleaning up and retrying (Attempt ${retryCount + 1}/2)...`);
+          this.cleanupSessionLock(userId);
+          // Wait before retrying (longer wait on second attempt)
+          await new Promise(resolve => setTimeout(resolve, 2000 + retryCount * 1000));
+          return this.initializeSession(userId, retryCount + 1);
+        }
+
+        await this.updateSessionStatus(userId, SessionStatus.FAILED, 'Session locked. Please try again in a few moments.');
+      } else {
+        await this.updateSessionStatus(userId, SessionStatus.FAILED, String(error));
+      }
+      
       throw error;
+    }
+  }
+
+  private cleanupSessionLock(userId: string) {
+    try {
+      const basePath = process.cwd();
+      // Lock files can be in multiple locations
+      const searchPaths = [
+        path.join(basePath, '.wwebjs_auth', `session-${userId}`),
+        path.join(basePath, '.wwebjs_auth', `session-${userId}`, 'Default'),
+        path.join(basePath, '.wwebjs_cache'),
+        path.join(basePath, '.wwebjs_cache', 'puppeteer'),
+      ];
+
+      // Common lock files in Chromium
+      const locks = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+
+      searchPaths.forEach(searchPath => {
+        if (!fs.existsSync(searchPath)) return;
+
+        locks.forEach(file => {
+          const filePath = path.join(searchPath, file);
+          try {
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              this.logger.log(`Removed stale lock file: ${filePath}`);
+            }
+          } catch (e) {
+            // Try to remove by force (symlink or other)
+            try {
+              fs.rmSync(filePath, { force: true });
+              this.logger.log(`Force removed lock file: ${filePath}`);
+            } catch (e2) {
+              this.logger.warn(`Could not remove ${filePath}: ${e2}`);
+            }
+          }
+        });
+      });
+    } catch (e) {
+      this.logger.error(`Failed to cleanup session lock: ${e}`);
     }
   }
 
@@ -206,6 +272,9 @@ export class WhatsAppService implements OnModuleDestroy {
       }
       this.clients.delete(userId);
     }
+
+    // Cleanup lock files to prevent future issues
+    this.cleanupSessionLock(userId);
 
     await this.updateSessionStatus(userId, SessionStatus.DISCONNECTED, 'Manual disconnect');
   }

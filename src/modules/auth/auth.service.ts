@@ -2,6 +2,8 @@ import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { PackagesService } from '../packages/packages.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { RegisterDto, LoginDto } from './dto';
 import { UserStatus } from '../../database/entities/user.entity';
 
@@ -10,6 +12,8 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly packagesService: PackagesService,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -29,6 +33,18 @@ export class AuthService {
 
     // Generate token
     const token = this.generateToken(user.id, user.email, user.role);
+
+    // Auto-assign Free Trial if available
+    try {
+      const freePackages = await this.packagesService.findAll();
+      const freeTrial = freePackages.find(p => p.price === 0 && p.isActive);
+      
+      if (freeTrial) {
+        await this.subscriptionsService.activateSubscription(user.id, freeTrial.id, null);
+      }
+    } catch (error) {
+      console.error('Failed to assign free trial:', error);
+    }
 
     return {
       accessToken: token,

@@ -4,9 +4,11 @@ import {
   Post,
   Body,
   Param,
+  Req,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto, MidtransNotificationDto } from './dto';
@@ -37,7 +39,9 @@ export class PaymentsController {
   @Post('notification')
   @ApiOperation({ summary: 'Midtrans webhook notification' })
   @ApiResponse({ status: 200, description: 'Notification processed' })
-  handleNotification(@Body() notification: MidtransNotificationDto) {
+  handleNotification(@Req() req: Request) {
+    // Bypass global validation pipe - Midtrans sends dynamic fields based on payment type
+    const notification = req.body as MidtransNotificationDto;
     return this.paymentsService.handleNotification(notification);
   }
 

@@ -1,15 +1,40 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Package } from '../../database/entities/package.entity';
 import { CreatePackageDto, UpdatePackageDto } from './dto';
 
 @Injectable()
-export class PackagesService {
+export class PackagesService implements OnModuleInit {
+  private readonly logger = new Logger(PackagesService.name);
   constructor(
     @InjectRepository(Package)
     private readonly packageRepository: Repository<Package>,
   ) {}
+
+  async onModuleInit() {
+    await this.seedFreeTrialPackage();
+  }
+
+  private async seedFreeTrialPackage() {
+    const freePackageName = 'Free Trial';
+    const existing = await this.packageRepository.findOne({ where: { name: freePackageName } });
+
+    if (!existing) {
+      this.logger.log('Seeding Free Trial package...');
+      const pkg = this.packageRepository.create({
+        name: freePackageName,
+        description: 'Paket uji coba gratis untuk pengguna baru',
+        price: 0,
+        durationDays: 3,
+        monthlyQuota: 50,
+        dailyLimit: 20,
+        isActive: true,
+        sortOrder: 0,
+      });
+      await this.packageRepository.save(pkg);
+    }
+  }
 
   async create(createPackageDto: CreatePackageDto): Promise<Package> {
     const pkg = this.packageRepository.create(createPackageDto);

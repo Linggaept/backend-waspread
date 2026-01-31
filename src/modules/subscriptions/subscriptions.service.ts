@@ -8,6 +8,15 @@ import { PackagesService } from '../packages/packages.service';
 export class SubscriptionsService {
   private readonly logger = new Logger(SubscriptionsService.name);
 
+  private getDateString(date: Date | string | null | undefined): string | null {
+    if (!date) return null;
+    if (date instanceof Date) {
+      return date.toISOString().split('T')[0];
+    }
+    // PostgreSQL date type returns as string 'YYYY-MM-DD'
+    return String(date).split('T')[0];
+  }
+
   constructor(
     @InjectRepository(Subscription)
     private readonly subscriptionRepository: Repository<Subscription>,
@@ -17,7 +26,7 @@ export class SubscriptionsService {
   async activateSubscription(
     userId: string,
     packageId: string,
-    paymentId: string,
+    paymentId: string | null,
   ): Promise<Subscription> {
     const pkg = await this.packagesService.findOne(packageId);
 
@@ -30,7 +39,7 @@ export class SubscriptionsService {
     const subscription = this.subscriptionRepository.create({
       userId,
       packageId,
-      paymentId,
+      paymentId: paymentId ?? undefined,
       startDate,
       endDate,
       usedQuota: 0,
@@ -91,7 +100,7 @@ export class SubscriptionsService {
 
     const pkg = subscription.package;
     const today = new Date().toISOString().split('T')[0];
-    const lastUsed = subscription.lastUsedDate?.toISOString().split('T')[0];
+    const lastUsed = this.getDateString(subscription.lastUsedDate);
 
     // Reset daily counter if new day
     if (lastUsed !== today) {
@@ -122,7 +131,7 @@ export class SubscriptionsService {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const lastUsed = subscription.lastUsedDate?.toISOString().split('T')[0];
+    const lastUsed = this.getDateString(subscription.lastUsedDate);
 
     // Reset daily counter if new day
     if (lastUsed !== today) {
