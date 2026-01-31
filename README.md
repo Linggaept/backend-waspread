@@ -1,98 +1,126 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# WhatsApp Blasting SaaS Backend 🚀
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend API untuk aplikasi SaaS pengiriman pesan WhatsApp massal (Blasting), dilengkapi dengan sistem langganan, manajemen device multi-session, dan pelaporan real-time.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 🛠 Tech Stack
 
-## Description
+- **Framework**: NestJS (Node.js)
+- **Language**: TypeScript
+- **Database**: PostgreSQL
+- **ORM**: TypeORM
+- **Queue**: BullMQ (Redis)
+- **WhatsApp Engine**: whatsapp-web.js (Puppeteer)
+- **Payment Gateway**: Midtrans
+- **Documentation**: Swagger / OpenAPI
+- **Containerization**: Docker & Docker Compose
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## 📋 Prerequisites
 
-```bash
-$ npm install
-```
+Sebelum memulai, pastikan Anda telah menginstal:
 
-## Compile and run the project
+- **Docker & Docker Compose** (Recommended way)
+- **Node.js v18+** (Optional, jika ingin run manual)
+- **Git**
 
-```bash
-# development
-$ npm run start
+---
 
-# watch mode
-$ npm run start:dev
+## ⚡️ Quick Start (Docker)
 
-# production mode
-$ npm run start:prod
-```
+Cara termudah menjalankan aplikasi ini adalah menggunakan Docker. Tidak perlu install Node.js/Postgres/Redis manual.
 
-## Run tests
+### 1. Clone Repository
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+git clone <repository_url>
+cd backend
 ```
 
-## Deployment
+### 2. Konfigurasi Environment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Copy file `.env.example` ke `.env` dan sesuaikan isinya:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+cp .env.example .env
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+> **Penting**: Pastikan variable `DB_HOST=postgres` jika menggunakan Docker (sudah dihandle otomatis oleh docker-compose, tapi biarkan `.env` default untuk development lokal).
+> Untuk `APP_PORT` default adalah `3000`.
+> Untuk `DB_PORT` default eksternal adalah `5433` (agar tidak bentrok dengan Postgres lokal di 5432).
 
-## Resources
+### 3. Jalankan Aplikasi
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+docker-compose up -d --build
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Tunggu beberapa saat hingga proses build selesai dan container berjalan.
 
-## Support
+### 4. Akses Aplikasi
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+- **API**: [http://localhost:3000/api](http://localhost:3000/api)
+- **Swagger Documentation**: [http://localhost:3000/docs](http://localhost:3000/docs)
+- **Database (via Host)**: `localhost:5433`
+- **Redis (via Host)**: `localhost:6379`
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 🛠 Manual Installation (Tanpa Docker)
 
-## License
+Jika Anda ingin menjalankan secara manual di local machine:
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+1. **Jalankan Database**: Pastikan PostgreSQL & Redis berjalan di komputer Anda.
+2. **Update .env**: Sesuaikan `DB_HOST`, `DB_PORT` (biasanya 5432), `DB_USERNAME`, `DB_PASSWORD` sesuai database lokal Anda.
+3. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+4. **Jalankan Migration** (jika `synchronize: false`):
+   ```bash
+   npm run typeorm migration:run
+   ```
+5. **Start Server**:
+   ```bash
+   npm run start:dev
+   ```
+
+---
+
+## 🚢 Deployment (Production)
+
+Untuk deployment ke server production:
+
+1. Gunakan file `docker-compose.prod.yml`.
+2. Pastikan file `.env` sudah menggunakan setting production (password kuat, debug false).
+3. Jalankan command:
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d --build
+   ```
+4. Aplikasi akan berjalan dengan restart policy `always` dan optimasi production.
+
+---
+
+## 🧪 Testing
+
+Untuk panduan testing manual endpoint-endpoint utama (Auth, WhatsApp Connect, Blasting), silakan baca file:
+👉 **[testing.md](./testing.md)**
+
+---
+
+## 🔍 Troubleshooting
+
+- **Error Connect ECONNREFUSED (DB)**:
+  - Cek apakah container database jalan: `docker ps`.
+  - Pastikan tidak ada service lain yang menggunakan port 5433 (atau 5432 internal).
+- **Error WhatsApp Browser/Puppeteer**:
+  - Jika muncul error library linux (`qemu-x86_64` atau library missing), pastikan menggunakan `Dockerfile` terbaru yang sudah menginstal Chromium secara manual.
+  - Rebuild image: `docker-compose build --no-cache`.
+- **Port Conflict**:
+  - Jika port 3000 terpakai, ubah `APP_PORT` di `.env` dan restart docker.
+
+---
+
+## 📝 License
+
+This project is [MIT licensed](LICENSE).
