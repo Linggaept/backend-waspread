@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { PackagesModule } from './modules/packages/packages.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
@@ -32,6 +33,7 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config
     PackagesModule,
     PaymentsModule,
     SubscriptionsModule,
+    WhatsAppModule,
   ],
   controllers: [AppController],
   providers: [AppService],
