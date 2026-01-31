@@ -46,7 +46,7 @@ cp .env.example .env
 ```
 
 > **Penting**: Pastikan variable `DB_HOST=postgres` jika menggunakan Docker (sudah dihandle otomatis oleh docker-compose, tapi biarkan `.env` default untuk development lokal).
-> Untuk `APP_PORT` default adalah `3000`.
+> Untuk `APP_PORT` default adalah `2004`.
 > Untuk `DB_PORT` default eksternal adalah `5433` (agar tidak bentrok dengan Postgres lokal di 5432).
 
 ### 3. Jalankan Aplikasi
@@ -59,8 +59,8 @@ Tunggu beberapa saat hingga proses build selesai dan container berjalan.
 
 ### 4. Akses Aplikasi
 
-- **API**: [http://localhost:3000/api](http://localhost:3000/api)
-- **Swagger Documentation**: [http://localhost:3000/docs](http://localhost:3000/docs)
+- **API**: [http://localhost:2004/api](http://localhost:2004/api)
+- **Swagger Documentation**: [http://localhost:2004/docs](http://localhost:2004/docs)
 - **Database (via Host)**: `localhost:5433`
 - **Redis (via Host)**: `localhost:6379`
 

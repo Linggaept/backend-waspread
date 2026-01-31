@@ -5,7 +5,7 @@ Panduan ini akan membantu Anda melakukan pengujian (testing) fungsionalitas Back
 **Persiapan:**
 
 - Pastikan aplikasi berjalan: `docker-compose up -d`
-- Buka Swagger UI: [http://localhost:3000/docs](http://localhost:3000/docs)
+- Buka Swagger UI: [http://localhost:2004/docs](http://localhost:2004/docs)
 
 ---
 
