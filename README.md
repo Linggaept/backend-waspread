@@ -120,7 +120,3 @@ Untuk panduan testing manual endpoint-endpoint utama (Auth, WhatsApp Connect, Bl
   - Jika port 3000 terpakai, ubah `APP_PORT` di `.env` dan restart docker.
 
 ---
-
-## 📝 License
-
-This project is [MIT licensed](LICENSE).
