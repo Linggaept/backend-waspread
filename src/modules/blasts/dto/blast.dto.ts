@@ -15,12 +15,39 @@ export class CreateBlastDto {
   @IsString()
   name: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 'Hello! Check out our new products.',
-    description: 'Message content',
+    description: 'Message content. Required if templateId is not provided.',
   })
+  @IsOptional()
   @IsString()
-  message: string;
+  message?: string;
+
+  @ApiPropertyOptional({
+    example: 'template-uuid',
+    description: 'Template ID to use for message content. If provided, message and imageUrl will be taken from template.',
+  })
+  @IsOptional()
+  @IsString()
+  templateId?: string;
+
+  @ApiPropertyOptional({
+    example: { name: 'John', product: 'Laptop' },
+    description: 'Variable values to replace in template message.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      if (value === '') return undefined;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return undefined;
+      }
+    }
+    return value;
+  })
+  variableValues?: Record<string, string>;
 
   @ApiPropertyOptional({
     example: ['628123456789', '628987654331'],

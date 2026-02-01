@@ -29,6 +29,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { UploadsService } from '../uploads/uploads.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { TemplatesService } from '../templates/templates.service';
 
 @ApiTags('Blasts')
 @ApiBearerAuth('JWT-auth')
@@ -39,6 +40,7 @@ export class BlastsController {
     private readonly blastsService: BlastsService,
     private readonly uploadsService: UploadsService,
     private readonly contactsService: ContactsService,
+    private readonly templatesService: TemplatesService,
   ) {}
 
   @Post()
@@ -57,7 +59,7 @@ export class BlastsController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['name', 'message'],
+      required: ['name'],
       properties: {
         name: {
           type: 'string',
@@ -67,14 +69,29 @@ export class BlastsController {
         message: {
           type: 'string',
           example: 'Hello! Check out our new products.',
-          description: 'Message content',
+          description: 'Message content. Required if templateId is not provided.',
+        },
+        templateId: {
+          type: 'string',
+          example: 'template-uuid',
+          description: 'Template ID to use. If provided, message and image will be taken from template.',
+        },
+        variableValues: {
+          type: 'object',
+          example: { name: 'John', product: 'Laptop' },
+          description: 'Variable values to replace in template message (JSON string for multipart).',
         },
         phoneNumbers: {
           type: 'array',
           items: { type: 'string' },
           example: ['628123456789', '628987654331'],
           description:
-            'Target phone numbers. Required if phonesFile is not provided. For multipart, send as JSON string.',
+            'Target phone numbers. Required if phonesFile/contactTag is not provided.',
+        },
+        contactTag: {
+          type: 'string',
+          example: 'customer',
+          description: 'Contact tag to select recipients from saved contacts.',
         },
         delayMs: {
           type: 'number',
@@ -85,13 +102,13 @@ export class BlastsController {
           type: 'string',
           format: 'binary',
           description:
-            'CSV/Excel file with phone numbers in first column (alternative to phoneNumbers array)',
+            'CSV/Excel file with phone numbers in first column.',
         },
         imageFile: {
           type: 'string',
           format: 'binary',
           description:
-            'Optional image to attach to every message (JPEG, PNG, GIF, WebP, max 5MB)',
+            'Optional image to attach (overrides template image if provided).',
         },
       },
     },
@@ -119,8 +136,30 @@ export class BlastsController {
 
     let phoneNumbers = createBlastDto.phoneNumbers;
     let imageUrl: string | undefined;
+    let message = createBlastDto.message;
 
     try {
+      // If templateId is provided, get message and image from template
+      if (createBlastDto.templateId) {
+        const templateData = await this.templatesService.getTemplateForBlast(
+          userId,
+          createBlastDto.templateId,
+          createBlastDto.variableValues,
+        );
+        message = templateData.message;
+        // Only use template image if no imageFile is uploaded
+        if (!imageFile && templateData.imageUrl) {
+          imageUrl = templateData.imageUrl;
+        }
+      }
+
+      // Validate that we have a message
+      if (!message) {
+        throw new BadRequestException(
+          'Message is required. Provide message content or use a templateId.',
+        );
+      }
+
       // Process phone numbers file if provided
       if (phonesFile) {
         this.uploadsService.validatePhoneFile(phonesFile);
@@ -143,7 +182,7 @@ export class BlastsController {
         );
       }
 
-      // Process image file if provided
+      // Process image file if provided (overrides template image)
       if (imageFile) {
         this.uploadsService.validateImageFile(imageFile);
         imageUrl = await this.uploadsService.moveToUserDirectory(
@@ -153,8 +192,9 @@ export class BlastsController {
         );
       }
 
-      // Set phone numbers in DTO (may have come from file)
+      // Set phone numbers and message in DTO
       createBlastDto.phoneNumbers = phoneNumbers;
+      createBlastDto.message = message;
 
       return this.blastsService.create(userId, createBlastDto, imageUrl);
     } catch (error) {

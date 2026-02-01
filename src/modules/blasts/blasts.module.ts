@@ -9,6 +9,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { UploadsModule } from '../uploads';
 import { ContactsModule } from '../contacts/contacts.module';
+import { TemplatesModule } from '../templates/templates.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ContactsModule } from '../contacts/contacts.module';
     SubscriptionsModule,
     UploadsModule,
     ContactsModule,
+    TemplatesModule,
   ],
   controllers: [BlastsController],
   providers: [BlastsService, BlastProcessor],
