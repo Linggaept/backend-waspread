@@ -6,8 +6,19 @@ import {
   Param,
   UseGuards,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFiles,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { BlastsService } from './blasts.service';
 import { CreateBlastDto, BlastResponseDto, BlastDetailDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,22 +26,137 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
+import { UploadsService } from '../uploads/uploads.service';
 
 @ApiTags('Blasts')
 @ApiBearerAuth('JWT-auth')
 @Controller('blasts')
 @UseGuards(JwtAuthGuard)
 export class BlastsController {
-  constructor(private readonly blastsService: BlastsService) {}
+  constructor(
+    private readonly blastsService: BlastsService,
+    private readonly uploadsService: UploadsService,
+  ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create blast campaign' })
-  @ApiResponse({ status: 201, description: 'Blast created successfully', type: BlastResponseDto })
-  create(
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'phonesFile', maxCount: 1 },
+      { name: 'imageFile', maxCount: 1 },
+    ]),
+  )
+  @ApiOperation({
+    summary: 'Create blast campaign',
+    description:
+      'Create a new blast campaign. Phone numbers can be provided via phoneNumbers array or phonesFile (CSV/Excel). Optionally include an image attachment.',
+  })
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'message'],
+      properties: {
+        name: {
+          type: 'string',
+          example: 'January Promo',
+          description: 'Campaign name',
+        },
+        message: {
+          type: 'string',
+          example: 'Hello! Check out our new products.',
+          description: 'Message content',
+        },
+        phoneNumbers: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['628123456789', '628987654331'],
+          description:
+            'Target phone numbers. Required if phonesFile is not provided. For multipart, send as JSON string.',
+        },
+        delayMs: {
+          type: 'number',
+          example: 3000,
+          description: 'Delay between messages in ms (minimum 1000)',
+        },
+        phonesFile: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'CSV/Excel file with phone numbers in first column (alternative to phoneNumbers array)',
+        },
+        imageFile: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'Optional image to attach to every message (JPEG, PNG, GIF, WebP, max 5MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Blast created successfully',
+    type: BlastResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input or file format',
+  })
+  async create(
     @CurrentUser('id') userId: string,
     @Body() createBlastDto: CreateBlastDto,
+    @UploadedFiles()
+    files?: {
+      phonesFile?: Express.Multer.File[];
+      imageFile?: Express.Multer.File[];
+    },
   ) {
-    return this.blastsService.create(userId, createBlastDto);
+    const phonesFile = files?.phonesFile?.[0];
+    const imageFile = files?.imageFile?.[0];
+
+    let phoneNumbers = createBlastDto.phoneNumbers;
+    let imageUrl: string | undefined;
+
+    try {
+      // Process phone numbers file if provided
+      if (phonesFile) {
+        this.uploadsService.validatePhoneFile(phonesFile);
+        const parsed = this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
+        phoneNumbers = parsed.phoneNumbers;
+        // Cleanup temp file after parsing
+        this.uploadsService.cleanupTempFile(phonesFile.path);
+      }
+
+      // Validate that we have phone numbers from either source
+      if (!phoneNumbers || phoneNumbers.length === 0) {
+        throw new BadRequestException(
+          'Phone numbers are required. Provide phoneNumbers array or upload a phonesFile.',
+        );
+      }
+
+      // Process image file if provided
+      if (imageFile) {
+        this.uploadsService.validateImageFile(imageFile);
+        imageUrl = await this.uploadsService.moveToUserDirectory(
+          imageFile.path,
+          userId,
+          'images',
+        );
+      }
+
+      // Set phone numbers in DTO (may have come from file)
+      createBlastDto.phoneNumbers = phoneNumbers;
+
+      return this.blastsService.create(userId, createBlastDto, imageUrl);
+    } catch (error) {
+      // Cleanup files on error
+      this.uploadsService.cleanupFiles(
+        phonesFile?.path,
+        imageFile?.path,
+        imageUrl,
+      );
+      throw error;
+    }
   }
 
   @Post(':id/start')
@@ -55,7 +181,11 @@ export class BlastsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all user blasts' })
-  @ApiResponse({ status: 200, description: 'List of blasts', type: [BlastResponseDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of blasts',
+    type: [BlastResponseDto],
+  })
   findAll(@CurrentUser('id') userId: string) {
     return this.blastsService.findAll(userId);
   }
@@ -69,7 +199,11 @@ export class BlastsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get blast details' })
-  @ApiResponse({ status: 200, description: 'Blast details', type: BlastResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Blast details',
+    type: BlastResponseDto,
+  })
   findOne(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -79,7 +213,11 @@ export class BlastsController {
 
   @Get(':id/messages')
   @ApiOperation({ summary: 'Get blast with message details' })
-  @ApiResponse({ status: 200, description: 'Blast details with messages', type: BlastDetailDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Blast details with messages',
+    type: BlastDetailDto,
+  })
   findOneWithMessages(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,

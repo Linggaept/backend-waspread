@@ -16,17 +16,19 @@ npm run lint               # ESLint with auto-fix
 npm run format             # Prettier formatting
 
 # Testing
-npm run test               # Run Jest unit tests
-npm run test:watch         # Jest watch mode
-npm run test:e2e           # End-to-end tests
+npm run test                           # Run all Jest unit tests
+npm run test:watch                     # Jest watch mode
+npm run test:e2e                       # End-to-end tests
+npm run test -- --testPathPattern=auth # Run tests matching pattern
+npm run test -- path/to/file.spec.ts   # Run specific test file
 
 # Database migrations (requires build first)
 npm run migration:generate -- src/database/migrations/MigrationName
 npm run migration:run
 npm run migration:revert
 
-# Docker
-docker-compose up -d --build    # Start dev environment
+# Docker (recommended for development)
+docker-compose up -d --build    # Start dev environment (Postgres + Redis + App)
 npm run docker:logs             # Follow logs
 ```
 
@@ -78,17 +80,17 @@ npm run docker:logs             # Follow logs
 ## Configuration
 
 Environment variables configured via `.env` (see `.env.example`):
-- `APP_PORT` (default: 2004)
-- `DB_*` - PostgreSQL connection
+- `APP_PORT` - Server port (Docker uses 2004, .env.example defaults to 3000)
+- `DB_*` - PostgreSQL connection (use `DB_HOST=postgres` in Docker)
 - `REDIS_*` - Redis connection
 - `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication
 - `MIDTRANS_*` - Payment gateway
 
 ## Development Guidelines
 
-From AGENT.md - always assume:
+Always assume:
 - Multi-user concurrent sessions
-- Failures WILL happen
+- Failures WILL happen (handle WhatsApp disconnects, payment failures)
 - Data isolation between users is critical
 
 Never:

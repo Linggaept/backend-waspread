@@ -13,6 +13,7 @@ import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { BlastsModule } from './modules/blasts/blasts.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { HealthModule } from './modules/health/health.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
 
 @Module({
@@ -40,6 +41,7 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config
     BlastsModule,
     ReportsModule,
     HealthModule,
+    ContactsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

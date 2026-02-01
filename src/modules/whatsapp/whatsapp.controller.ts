@@ -34,6 +34,22 @@ export class WhatsAppController {
     }
   }
 
+  @Post('reconnect')
+  @ApiOperation({ summary: 'Force reconnect WhatsApp session (destroys existing and creates new)' })
+  @ApiResponse({ status: 201, description: 'Session reinitialized' })
+  async reconnect(@CurrentUser('id') userId: string) {
+    try {
+      // Force disconnect first
+      await this.whatsappService.forceDisconnect(userId);
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Then connect
+      return await this.whatsappService.initializeSession(userId);
+    } catch (error) {
+      throw new BadRequestException(`Failed to reconnect: ${error}`);
+    }
+  }
+
   @Delete('disconnect')
   @ApiOperation({ summary: 'Disconnect session' })
   @ApiResponse({ status: 200, description: 'Session disconnected' })

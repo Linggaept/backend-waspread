@@ -12,6 +12,7 @@ export interface BlastJobData {
   userId: string;
   phoneNumber: string;
   message: string;
+  imageUrl?: string;
 }
 
 @Processor('blast')
@@ -29,7 +30,7 @@ export class BlastProcessor extends WorkerHost {
   }
 
   async process(job: Job<BlastJobData>): Promise<void> {
-    const { blastId, messageId, userId, phoneNumber, message } = job.data;
+    const { blastId, messageId, userId, phoneNumber, message, imageUrl } = job.data;
 
     this.logger.log(`Processing message ${messageId} for blast ${blastId}`);
 
@@ -48,8 +49,12 @@ export class BlastProcessor extends WorkerHost {
     }
 
     try {
-      // Send message
-      await this.whatsappService.sendMessage(userId, phoneNumber, message);
+      // Send message with or without media
+      if (imageUrl) {
+        await this.whatsappService.sendMessageWithMedia(userId, phoneNumber, message, imageUrl);
+      } else {
+        await this.whatsappService.sendMessage(userId, phoneNumber, message);
+      }
 
       // Update message status
       await this.messageRepository.update(messageId, {

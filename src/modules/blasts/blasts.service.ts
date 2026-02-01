@@ -30,7 +30,11 @@ export class BlastsService {
     private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
-  async create(userId: string, createBlastDto: CreateBlastDto): Promise<Blast> {
+  async create(
+    userId: string,
+    createBlastDto: CreateBlastDto,
+    imageUrl?: string,
+  ): Promise<Blast> {
     // Check WhatsApp session
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
@@ -43,7 +47,8 @@ export class BlastsService {
       throw new ForbiddenException('No active subscription. Please subscribe first.');
     }
 
-    const recipientCount = createBlastDto.phoneNumbers.length;
+    const phoneNumbers = createBlastDto.phoneNumbers || [];
+    const recipientCount = phoneNumbers.length;
     if (quotaCheck.remainingQuota < recipientCount) {
       throw new ForbiddenException(
         `Insufficient quota. Required: ${recipientCount}, Available: ${quotaCheck.remainingQuota}`,
@@ -65,13 +70,14 @@ export class BlastsService {
       pendingCount: recipientCount,
       delayMs: createBlastDto.delayMs || 3000,
       status: BlastStatus.PENDING,
+      imageUrl: imageUrl,
     });
 
     await this.blastRepository.save(blast);
 
     // Create message records
     const messages: BlastMessage[] = [];
-    for (const phoneNumber of createBlastDto.phoneNumbers) {
+    for (const phoneNumber of phoneNumbers) {
       const message = this.messageRepository.create({
         blastId: blast.id,
         phoneNumber: this.formatPhoneNumber(phoneNumber),
@@ -127,6 +133,7 @@ export class BlastsService {
           userId,
           phoneNumber: message.phoneNumber,
           message: blast.message,
+          imageUrl: blast.imageUrl || undefined,
         },
         {
           delay,

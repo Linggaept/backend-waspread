@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Client, LocalAuth } from 'whatsapp-web.js';
+import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import { WhatsAppSession, SessionStatus } from '../../database/entities/whatsapp-session.entity';
 import { WhatsAppGateway } from './gateways/whatsapp.gateway';
@@ -47,13 +47,19 @@ export class WhatsAppService implements OnModuleDestroy {
       if (instance.isReady) {
         return { status: 'connected' };
       }
-      // Client exists but not ready, get current status
-      const session = await this.getOrCreateSession(userId);
-      return {
-        status: session.status,
-        qrCode: session.lastQrCode || undefined,
-      };
+
+      // Client exists but not ready - destroy it and recreate
+      this.logger.warn(`Client exists but not ready for user ${userId}, destroying and recreating...`);
+      try {
+        await instance.client.destroy();
+      } catch (e) {
+        this.logger.warn(`Error destroying stale client: ${e}`);
+      }
+      this.clients.delete(userId);
     }
+
+    // Kill any orphan chromium processes for this session
+    await this.killOrphanProcesses(userId);
 
     // Create new client
     const session = await this.getOrCreateSession(userId);
@@ -61,6 +67,9 @@ export class WhatsAppService implements OnModuleDestroy {
 
     // Proactively cleanup any stale lock files before starting
     this.cleanupSessionLock(userId);
+
+    // Wait a bit for processes to fully terminate
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     const client = new Client({
       authStrategy: new LocalAuth({
@@ -123,43 +132,80 @@ export class WhatsAppService implements OnModuleDestroy {
     }
   }
 
+  private async killOrphanProcesses(userId: string): Promise<void> {
+    try {
+      const { exec } = require('child_process');
+      const sessionPath = path.join(process.cwd(), '.wwebjs_auth', `session-${userId}`);
+
+      // Find and kill chromium processes using this session directory
+      const cmd = process.platform === 'darwin' || process.platform === 'linux'
+        ? `pkill -f "user-data-dir=${sessionPath}" 2>/dev/null || true`
+        : `taskkill /F /FI "COMMANDLINE eq *${sessionPath}*" 2>nul || echo ok`;
+
+      await new Promise<void>((resolve) => {
+        exec(cmd, (error: Error | null) => {
+          if (error) {
+            this.logger.debug(`No orphan processes found or error killing: ${error.message}`);
+          }
+          resolve();
+        });
+      });
+    } catch (e) {
+      this.logger.debug(`Error killing orphan processes: ${e}`);
+    }
+  }
+
   private cleanupSessionLock(userId: string) {
     try {
       const basePath = process.cwd();
+      const sessionDir = path.join(basePath, '.wwebjs_auth', `session-${userId}`);
+
       // Lock files can be in multiple locations
       const searchPaths = [
-        path.join(basePath, '.wwebjs_auth', `session-${userId}`),
-        path.join(basePath, '.wwebjs_auth', `session-${userId}`, 'Default'),
+        sessionDir,
+        path.join(sessionDir, 'Default'),
         path.join(basePath, '.wwebjs_cache'),
         path.join(basePath, '.wwebjs_cache', 'puppeteer'),
       ];
 
       // Common lock files in Chromium
-      const locks = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+      const locks = ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'lockfile'];
 
       searchPaths.forEach(searchPath => {
         if (!fs.existsSync(searchPath)) return;
 
-        locks.forEach(file => {
-          const filePath = path.join(searchPath, file);
-          try {
-            if (fs.existsSync(filePath)) {
-              fs.unlinkSync(filePath);
-              this.logger.log(`Removed stale lock file: ${filePath}`);
-            }
-          } catch (e) {
-            // Try to remove by force (symlink or other)
-            try {
-              fs.rmSync(filePath, { force: true });
-              this.logger.log(`Force removed lock file: ${filePath}`);
-            } catch (e2) {
-              this.logger.warn(`Could not remove ${filePath}: ${e2}`);
-            }
-          }
-        });
+        // Also search subdirectories recursively for lock files
+        this.removeLockFilesRecursive(searchPath, locks);
       });
     } catch (e) {
       this.logger.error(`Failed to cleanup session lock: ${e}`);
+    }
+  }
+
+  private removeLockFilesRecursive(dir: string, locks: string[]) {
+    try {
+      if (!fs.existsSync(dir)) return;
+
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          // Recurse into subdirectories
+          this.removeLockFilesRecursive(fullPath, locks);
+        } else if (locks.includes(entry.name)) {
+          // Remove lock file
+          try {
+            fs.rmSync(fullPath, { force: true });
+            this.logger.log(`Removed lock file: ${fullPath}`);
+          } catch (e) {
+            this.logger.warn(`Could not remove ${fullPath}: ${e}`);
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.debug(`Error scanning directory ${dir}: ${e}`);
     }
   }
 
@@ -235,11 +281,23 @@ export class WhatsAppService implements OnModuleDestroy {
 
     client.on('disconnected', async (reason: string) => {
       this.logger.log(`Client disconnected for user ${userId}: ${reason}`);
-      
+
       const instance = this.clients.get(userId);
       if (instance) {
         instance.isReady = false;
+        // Try to destroy client properly
+        try {
+          await instance.client.destroy();
+        } catch (e) {
+          this.logger.debug(`Error destroying client on disconnect: ${e}`);
+        }
       }
+
+      // Cleanup client from map
+      this.clients.delete(userId);
+
+      // Cleanup lock files to prevent issues on reconnect
+      this.cleanupSessionLock(userId);
 
       await this.sessionRepository.update(
         { userId },
@@ -255,9 +313,6 @@ export class WhatsAppService implements OnModuleDestroy {
         status: SessionStatus.DISCONNECTED,
         reason,
       });
-
-      // Cleanup client
-      this.clients.delete(userId);
     });
   }
 
@@ -279,6 +334,28 @@ export class WhatsAppService implements OnModuleDestroy {
     await this.updateSessionStatus(userId, SessionStatus.DISCONNECTED, 'Manual disconnect');
   }
 
+  async forceDisconnect(userId: string): Promise<void> {
+    this.logger.log(`Force disconnecting session for user ${userId}`);
+
+    const instance = this.clients.get(userId);
+    if (instance) {
+      try {
+        await instance.client.destroy();
+      } catch (error) {
+        this.logger.warn(`Error destroying client for user ${userId}: ${error}`);
+      }
+      this.clients.delete(userId);
+    }
+
+    // Kill any orphan processes
+    await this.killOrphanProcesses(userId);
+
+    // Aggressive cleanup of lock files
+    this.cleanupSessionLock(userId);
+
+    await this.updateSessionStatus(userId, SessionStatus.DISCONNECTED, 'Force disconnect');
+  }
+
   async getSessionStatus(userId: string): Promise<WhatsAppSession | null> {
     return this.sessionRepository.findOne({ where: { userId } });
   }
@@ -296,6 +373,36 @@ export class WhatsAppService implements OnModuleDestroy {
       return true;
     } catch (error) {
       this.logger.error(`Failed to send message for user ${userId}`, error);
+      throw error;
+    }
+  }
+
+  async sendMessageWithMedia(
+    userId: string,
+    phoneNumber: string,
+    message: string,
+    imagePath: string,
+  ): Promise<boolean> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    try {
+      // Format phone number (add @c.us suffix)
+      const chatId = this.formatPhoneNumber(phoneNumber);
+
+      // Load media from file path
+      const media = MessageMedia.fromFilePath(imagePath);
+
+      // Send message with media and caption
+      await instance.client.sendMessage(chatId, media, {
+        caption: message,
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send message with media for user ${userId}`, error);
       throw error;
     }
   }

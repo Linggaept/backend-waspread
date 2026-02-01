@@ -29,6 +29,7 @@ services:
       - /usr/src/app/node_modules
       - .wwebjs_auth:/usr/src/app/.wwebjs_auth
       - .wwebjs_cache:/usr/src/app/.wwebjs_cache
+      - uploads_data:/usr/src/app/uploads
     depends_on:
       - postgres
       - redis
@@ -68,3 +69,4 @@ volumes:
   redis_data:
   .wwebjs_auth:
   .wwebjs_cache:
+  uploads_data:

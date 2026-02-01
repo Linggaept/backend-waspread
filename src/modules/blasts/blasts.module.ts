@@ -7,6 +7,7 @@ import { BlastProcessor } from './processors/blast.processor';
 import { Blast, BlastMessage } from '../../database/entities/blast.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { UploadsModule } from '../uploads';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
     }),
     WhatsAppModule,
     SubscriptionsModule,
+    UploadsModule,
   ],
   controllers: [BlastsController],
   providers: [BlastsService, BlastProcessor],

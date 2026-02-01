@@ -70,6 +70,9 @@ export class Blast {
   @Column({ nullable: true })
   errorMessage: string;
 
+  @Column({ nullable: true })
+  imageUrl?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
