@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -19,6 +20,8 @@ export enum BlastStatus {
 }
 
 @Entity('blasts')
+@Index(['userId', 'status'])
+@Index(['userId', 'createdAt'])
 export class Blast {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -92,6 +95,7 @@ export enum MessageStatus {
 }
 
 @Entity('blast_messages')
+@Index(['blastId', 'status'])
 export class BlastMessage {
   @PrimaryGeneratedColumn('uuid')
   id: string;

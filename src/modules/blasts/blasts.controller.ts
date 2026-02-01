@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   ParseUUIDPipe,
   UseInterceptors,
@@ -20,13 +21,14 @@ import {
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { BlastsService } from './blasts.service';
-import { CreateBlastDto, BlastResponseDto, BlastDetailDto } from './dto';
+import { CreateBlastDto, BlastResponseDto, BlastDetailDto, BlastQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { UploadsService } from '../uploads/uploads.service';
+import { ContactsService } from '../contacts/contacts.service';
 
 @ApiTags('Blasts')
 @ApiBearerAuth('JWT-auth')
@@ -36,6 +38,7 @@ export class BlastsController {
   constructor(
     private readonly blastsService: BlastsService,
     private readonly uploadsService: UploadsService,
+    private readonly contactsService: ContactsService,
   ) {}
 
   @Post()
@@ -125,12 +128,18 @@ export class BlastsController {
         phoneNumbers = parsed.phoneNumbers;
         // Cleanup temp file after parsing
         this.uploadsService.cleanupTempFile(phonesFile.path);
+      } else if (createBlastDto.contactTag) {
+        // Fetch phone numbers from contacts by tag
+        phoneNumbers = await this.contactsService.getPhoneNumbersByTag(
+          userId,
+          createBlastDto.contactTag,
+        );
       }
 
       // Validate that we have phone numbers from either source
       if (!phoneNumbers || phoneNumbers.length === 0) {
         throw new BadRequestException(
-          'Phone numbers are required. Provide phoneNumbers array or upload a phonesFile.',
+          'Phone numbers are required. Provide phoneNumbers array, upload a phonesFile, or specify a contactTag.',
         );
       }
 
@@ -180,14 +189,13 @@ export class BlastsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all user blasts' })
+  @ApiOperation({ summary: 'Get all user blasts with pagination and search' })
   @ApiResponse({
     status: 200,
-    description: 'List of blasts',
-    type: [BlastResponseDto],
+    description: 'Paginated list of blasts',
   })
-  findAll(@CurrentUser('id') userId: string) {
-    return this.blastsService.findAll(userId);
+  findAll(@CurrentUser('id') userId: string, @Query() query: BlastQueryDto) {
+    return this.blastsService.findAll(userId, query);
   }
 
   @Get('stats')

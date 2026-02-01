@@ -56,6 +56,15 @@ export class CreateBlastDto {
   phoneNumbers?: string[];
 
   @ApiPropertyOptional({
+    example: 'promo',
+    description:
+      'Contact tag to select recipients from saved contacts. If provided, phoneNumbers will be fetched from contacts module.',
+  })
+  @IsOptional()
+  @IsString()
+  contactTag?: string;
+
+  @ApiPropertyOptional({
     example: 3000,
     description: 'Delay between messages in ms',
     default: 3000,
@@ -130,4 +139,33 @@ class BlastMessageDetail {
 export class BlastDetailDto extends BlastResponseDto {
   @ApiProperty({ type: [BlastMessageDetail] })
   messages: BlastMessageDetail[];
+}
+
+export class BlastQueryDto {
+  @ApiPropertyOptional({ example: 1, description: 'Page number', default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Transform(({ value }) => parseInt(value, 10) || 1)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 10, description: 'Items per page', default: 10 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Transform(({ value }) => parseInt(value, 10) || 10)
+  limit?: number;
+
+  @ApiPropertyOptional({ example: 'promo', description: 'Search by campaign name' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ 
+    example: 'completed', 
+    description: 'Filter by status (pending, processing, completed, cancelled, failed)' 
+  })
+  @IsOptional()
+  @IsString()
+  status?: string;
 }

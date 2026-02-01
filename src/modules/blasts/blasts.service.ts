@@ -6,13 +6,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Blast, BlastStatus, BlastMessage, MessageStatus } from '../../database/entities/blast.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { CreateBlastDto } from './dto';
+import { CreateBlastDto, BlastQueryDto } from './dto';
 import { BlastJobData } from './processors/blast.processor';
 
 @Injectable()
@@ -28,6 +28,7 @@ export class BlastsService {
     private readonly blastQueue: Queue<BlastJobData>,
     private readonly whatsappService: WhatsAppService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(
@@ -61,36 +62,46 @@ export class BlastsService {
       );
     }
 
-    // Create blast
-    const blast = this.blastRepository.create({
-      userId,
-      name: createBlastDto.name,
-      message: createBlastDto.message,
-      totalRecipients: recipientCount,
-      pendingCount: recipientCount,
-      delayMs: createBlastDto.delayMs || 3000,
-      status: BlastStatus.PENDING,
-      imageUrl: imageUrl,
-    });
+    // Use transaction for atomicity
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    await this.blastRepository.save(blast);
-
-    // Create message records
-    const messages: BlastMessage[] = [];
-    for (const phoneNumber of phoneNumbers) {
-      const message = this.messageRepository.create({
-        blastId: blast.id,
-        phoneNumber: this.formatPhoneNumber(phoneNumber),
-        status: MessageStatus.PENDING,
+    try {
+      // Create blast
+      const blast = this.blastRepository.create({
+        userId,
+        name: createBlastDto.name,
+        message: createBlastDto.message,
+        totalRecipients: recipientCount,
+        pendingCount: recipientCount,
+        delayMs: createBlastDto.delayMs || 3000,
+        status: BlastStatus.PENDING,
+        imageUrl: imageUrl,
       });
-      messages.push(message);
+
+      await queryRunner.manager.save(blast);
+
+      // Create message records in bulk
+      const messages = phoneNumbers.map((phoneNumber) =>
+        this.messageRepository.create({
+          blastId: blast.id,
+          phoneNumber: this.formatPhoneNumber(phoneNumber),
+          status: MessageStatus.PENDING,
+        }),
+      );
+
+      await queryRunner.manager.save(messages);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(`Blast ${blast.id} created with ${recipientCount} recipients`);
+      return blast;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    await this.messageRepository.save(messages);
-
-    this.logger.log(`Blast ${blast.id} created with ${recipientCount} recipients`);
-
-    return blast;
   }
 
   async startBlast(userId: string, blastId: string): Promise<Blast> {
@@ -120,36 +131,38 @@ export class BlastsService {
       where: { blastId },
     });
 
-    // Add jobs to queue with delay
-    for (let i = 0; i < messages.length; i++) {
-      const message = messages[i];
-      const delay = i * blast.delayMs;
-
-      await this.blastQueue.add(
-        'send-message',
-        {
-          blastId,
-          messageId: message.id,
-          userId,
-          phoneNumber: message.phoneNumber,
-          message: blast.message,
-          imageUrl: blast.imageUrl || undefined,
+    // Build bulk job data
+    const jobs = messages.map((message, i) => ({
+      name: 'send-message',
+      data: {
+        blastId,
+        messageId: message.id,
+        userId,
+        phoneNumber: message.phoneNumber,
+        message: blast.message,
+        imageUrl: blast.imageUrl || undefined,
+      } as BlastJobData,
+      opts: {
+        delay: i * blast.delayMs,
+        attempts: 3,
+        backoff: {
+          type: 'exponential' as const,
+          delay: 5000,
         },
-        {
-          delay,
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-        },
-      );
+      },
+    }));
 
-      // Update message status to queued
-      await this.messageRepository.update(message.id, {
-        status: MessageStatus.QUEUED,
-      });
-    }
+    // Add all jobs in bulk
+    await this.blastQueue.addBulk(jobs);
+
+    // Bulk update all messages to queued status
+    const messageIds = messages.map((m) => m.id);
+    await this.messageRepository
+      .createQueryBuilder()
+      .update()
+      .set({ status: MessageStatus.QUEUED })
+      .whereInIds(messageIds)
+      .execute();
 
     this.logger.log(`Blast ${blastId} started with ${messages.length} messages queued`);
 
@@ -192,11 +205,39 @@ export class BlastsService {
     return this.findOne(userId, blastId);
   }
 
-  async findAll(userId: string): Promise<Blast[]> {
-    return this.blastRepository.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(
+    userId: string,
+    query: BlastQueryDto,
+  ): Promise<{ data: Blast[]; total: number; page: number; limit: number; totalPages: number }> {
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const qb = this.blastRepository.createQueryBuilder('blast');
+    qb.where('blast.userId = :userId', { userId });
+
+    // Search by name
+    if (query.search) {
+      qb.andWhere('blast.name ILIKE :search', { search: `%${query.search}%` });
+    }
+
+    // Filter by status
+    if (query.status) {
+      qb.andWhere('blast.status = :status', { status: query.status });
+    }
+
+    qb.orderBy('blast.createdAt', 'DESC');
+    qb.skip(skip).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findOne(userId: string, blastId: string): Promise<Blast> {
@@ -238,13 +279,21 @@ export class BlastsService {
     totalMessagesSent: number;
     totalMessagesFailed: number;
   }> {
-    const blasts = await this.blastRepository.find({ where: { userId } });
+    // Use SQL aggregation for better performance
+    const result = await this.blastRepository
+      .createQueryBuilder('blast')
+      .select('COUNT(*)', 'totalBlasts')
+      .addSelect(`SUM(CASE WHEN blast.status = 'completed' THEN 1 ELSE 0 END)`, 'completedBlasts')
+      .addSelect('COALESCE(SUM(blast.sentCount), 0)', 'totalMessagesSent')
+      .addSelect('COALESCE(SUM(blast.failedCount), 0)', 'totalMessagesFailed')
+      .where('blast.userId = :userId', { userId })
+      .getRawOne();
 
     return {
-      totalBlasts: blasts.length,
-      completedBlasts: blasts.filter((b) => b.status === BlastStatus.COMPLETED).length,
-      totalMessagesSent: blasts.reduce((sum, b) => sum + b.sentCount, 0),
-      totalMessagesFailed: blasts.reduce((sum, b) => sum + b.failedCount, 0),
+      totalBlasts: parseInt(result.totalBlasts, 10) || 0,
+      completedBlasts: parseInt(result.completedBlasts, 10) || 0,
+      totalMessagesSent: parseInt(result.totalMessagesSent, 10) || 0,
+      totalMessagesFailed: parseInt(result.totalMessagesFailed, 10) || 0,
     };
   }
 

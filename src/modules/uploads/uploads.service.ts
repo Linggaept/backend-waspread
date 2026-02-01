@@ -230,7 +230,8 @@ export class UploadsService {
     fs.copyFileSync(tempPath, destPath);
     this.cleanupTempFile(tempPath);
 
-    return destPath;
+    // Return relative path for static serving
+    return path.join('/uploads', subFolder, userId, fileName);
   }
 
   cleanupTempFile(filePath: string): void {

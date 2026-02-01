@@ -392,8 +392,16 @@ export class WhatsAppService implements OnModuleDestroy {
       // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
 
+      // Resolve relative path to absolute path
+      let absolutePath = imagePath;
+      if (imagePath.startsWith('/uploads')) {
+        absolutePath = path.join(process.cwd(), imagePath);
+      }
+
+      this.logger.debug(`Sending image from: ${absolutePath}`);
+
       // Load media from file path
-      const media = MessageMedia.fromFilePath(imagePath);
+      const media = MessageMedia.fromFilePath(absolutePath);
 
       // Send message with media and caption
       await instance.client.sendMessage(chatId, media, {
