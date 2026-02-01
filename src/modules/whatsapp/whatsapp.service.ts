@@ -18,6 +18,8 @@ interface ClientInstance {
 export class WhatsAppService implements OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private clients: Map<string, ClientInstance> = new Map();
+  private mediaCache = new Map<string, { media: MessageMedia; expiresAt: number }>();
+  private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -400,8 +402,8 @@ export class WhatsAppService implements OnModuleDestroy {
 
       this.logger.debug(`Sending image from: ${absolutePath}`);
 
-      // Load media from file path
-      const media = MessageMedia.fromFilePath(absolutePath);
+      // Load media from file path with caching
+      const media = await this.getCachedMedia(absolutePath);
 
       // Send message with media and caption
       await instance.client.sendMessage(chatId, media, {
@@ -431,6 +433,51 @@ export class WhatsAppService implements OnModuleDestroy {
     
     // Add @c.us suffix
     return cleaned + '@c.us';
+  }
+
+  private async getCachedMedia(absolutePath: string): Promise<MessageMedia> {
+    const now = Date.now();
+    const cached = this.mediaCache.get(absolutePath);
+
+    // Return cached if valid
+    if (cached && cached.expiresAt > now) {
+      // Extend expiration on use
+      cached.expiresAt = now + this.CACHE_TTL_MS;
+      return cached.media;
+    }
+
+    // Load fresh media
+    if (!fs.existsSync(absolutePath)) {
+      throw new Error(`File not found: ${absolutePath}`);
+    }
+
+    const media = MessageMedia.fromFilePath(absolutePath);
+    
+    // Validate media loaded correctly
+    if (!media || !media.data) {
+       throw new Error(`Failed to load media from ${absolutePath}`);
+    }
+
+    this.mediaCache.set(absolutePath, {
+      media,
+      expiresAt: now + this.CACHE_TTL_MS,
+    });
+
+    // Cleanup expired cache entries periodically (lazy cleanup)
+    if (this.mediaCache.size > 100) {
+      this.cleanupMediaCache();
+    }
+
+    return media;
+  }
+
+  private cleanupMediaCache() {
+    const now = Date.now();
+    for (const [key, value] of this.mediaCache.entries()) {
+      if (value.expiresAt < now) {
+        this.mediaCache.delete(key);
+      }
+    }
   }
 
   private async getOrCreateSession(userId: string): Promise<WhatsAppSession> {
