@@ -7,6 +7,7 @@ import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import { WhatsAppSession, SessionStatus } from '../../database/entities/whatsapp-session.entity';
 import { WhatsAppGateway } from './gateways/whatsapp.gateway';
+import { StorageService } from '../uploads/storage.service';
 
 interface ClientInstance {
   client: Client;
@@ -25,6 +26,7 @@ export class WhatsAppService implements OnModuleDestroy {
     @InjectRepository(WhatsAppSession)
     private readonly sessionRepository: Repository<WhatsAppSession>,
     private readonly whatsappGateway: WhatsAppGateway,
+    private readonly storageService: StorageService,
   ) {}
 
   async onModuleDestroy() {
@@ -394,16 +396,22 @@ export class WhatsAppService implements OnModuleDestroy {
       // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
 
-      // Resolve relative path to absolute path
-      let absolutePath = imagePath;
-      if (imagePath.startsWith('/uploads')) {
-        absolutePath = path.join(process.cwd(), imagePath);
+      // Load media based on source type
+      let media: MessageMedia;
+      
+      if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+        // R2 URL - download and cache
+        this.logger.debug(`Sending image from URL: ${imagePath}`);
+        media = await this.getCachedMediaFromUrl(imagePath);
+      } else {
+        // Local path
+        let absolutePath = imagePath;
+        if (imagePath.startsWith('/uploads')) {
+          absolutePath = path.join(process.cwd(), imagePath);
+        }
+        this.logger.debug(`Sending image from local: ${absolutePath}`);
+        media = await this.getCachedMedia(absolutePath);
       }
-
-      this.logger.debug(`Sending image from: ${absolutePath}`);
-
-      // Load media from file path with caching
-      const media = await this.getCachedMedia(absolutePath);
 
       // Send message with media and caption
       await instance.client.sendMessage(chatId, media, {
@@ -478,6 +486,91 @@ export class WhatsAppService implements OnModuleDestroy {
         this.mediaCache.delete(key);
       }
     }
+  }
+
+  private async getCachedMediaFromUrl(url: string): Promise<MessageMedia> {
+    const now = Date.now();
+    const cached = this.mediaCache.get(url);
+
+    // Return cached if valid
+    if (cached && cached.expiresAt > now) {
+      cached.expiresAt = now + this.CACHE_TTL_MS;
+      return cached.media;
+    }
+
+    // Try to download via S3 SDK first (bypasses ISP completely)
+    let buffer: Buffer;
+    const r2Key = this.storageService.extractKeyFromUrl(url);
+    
+    if (r2Key && this.storageService.isR2Enabled()) {
+      this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
+      buffer = await this.storageService.downloadFromR2(r2Key);
+    } else {
+      // Fallback to HTTP download
+      this.logger.debug(`Downloading via HTTP: ${url}`);
+      buffer = await this.downloadImageBuffer(url);
+    }
+    
+    const mimeType = this.getMimeTypeFromUrl(url);
+    const base64 = buffer.toString('base64');
+    
+    const media = new MessageMedia(mimeType, base64);
+    
+    if (!media || !media.data) {
+      throw new Error(`Failed to load media from URL: ${url}`);
+    }
+
+    this.mediaCache.set(url, {
+      media,
+      expiresAt: now + this.CACHE_TTL_MS,
+    });
+
+    if (this.mediaCache.size > 100) {
+      this.cleanupMediaCache();
+    }
+
+    return media;
+  }
+
+  private async downloadImageBuffer(url: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const isHttps = url.startsWith('https');
+      const protocol = isHttps ? require('https') : require('http');
+      
+      // Options to bypass ISP SSL interception (Telkomsel etc)
+      const options = isHttps ? { rejectUnauthorized: false } : {};
+      
+      const request = protocol.get(url, options, (response: any) => {
+        // Handle redirects
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          return this.downloadImageBuffer(response.headers.location).then(resolve).catch(reject);
+        }
+        
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download image: HTTP ${response.statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+        response.on('error', reject);
+      });
+      
+      request.on('error', reject);
+    });
+  }
+
+  private getMimeTypeFromUrl(url: string): string {
+    const ext = url.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeTypes: Record<string, string> = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+    };
+    return mimeTypes[ext] || 'image/jpeg';
   }
 
   private async getOrCreateSession(userId: string): Promise<WhatsAppSession> {

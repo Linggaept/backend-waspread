@@ -4,6 +4,7 @@ import { diskStorage } from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UploadsService } from './uploads.service';
+import { StorageService } from './storage.service';
 
 const tempDir = path.join(process.cwd(), 'uploads', 'temp');
 
@@ -28,7 +29,8 @@ if (!fs.existsSync(tempDir)) {
       },
     }),
   ],
-  providers: [UploadsService],
-  exports: [UploadsService, MulterModule],
+  providers: [UploadsService, StorageService],
+  exports: [UploadsService, StorageService, MulterModule],
 })
 export class UploadsModule {}
+

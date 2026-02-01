@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
+import { StorageService } from './storage.service';
 
 export interface ParsedPhoneNumbers {
   phoneNumbers: string[];
@@ -26,7 +27,7 @@ export class UploadsService {
   private readonly MAX_PHONE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
   private readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 
-  constructor() {
+  constructor(private readonly storageService: StorageService) {
     this.ensureDirectories();
   }
 
@@ -217,7 +218,25 @@ export class UploadsService {
     tempPath: string,
     userId: string,
     subFolder: 'images' | 'temp' = 'images',
+    originalName?: string,
   ): Promise<string> {
+    // If R2 is enabled and this is an image, compress and upload to R2
+    if (subFolder === 'images' && this.storageService.isR2Enabled()) {
+      try {
+        const result = await this.storageService.compressAndUpload(
+          tempPath,
+          userId,
+          originalName || path.basename(tempPath),
+        );
+        this.cleanupTempFile(tempPath);
+        return result.url;
+      } catch (error) {
+        this.logger.error(`Failed to upload to R2, falling back to local: ${error}`);
+        // Fall through to local storage
+      }
+    }
+
+    // Local storage fallback
     const userDir = path.join(this.uploadsDir, subFolder, userId);
 
     if (!fs.existsSync(userDir)) {
