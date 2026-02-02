@@ -46,11 +46,14 @@ npm run docker:logs             # Follow logs
 - `subscriptions/` - User subscription lifecycle, quota tracking
 - `whatsapp/` - WhatsApp Web session management via whatsapp-web.js
 - `blasts/` - Bulk message campaigns with BullMQ queue processing
+- `contacts/` - Contact list management for blast recipients
+- `templates/` - Message template management for reusable blast content
+- `uploads/` - File uploads with Cloudflare R2 storage and image compression
 - `reports/` - Dashboard stats and CSV exports
 - `health/` - System health endpoints
 
 **Core Entities** (`src/database/entities/`):
-- User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage
+- User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, Contact, Template
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -71,6 +74,12 @@ npm run docker:logs             # Follow logs
 - Uses whatsapp-web.js (Puppeteer-based, unofficial API)
 - Session persistence in `.wwebjs_auth/` directory
 - WebSocket gateway for QR code real-time updates
+- Media caching for optimized image sending
+
+**Image Storage Pipeline**:
+- Images uploaded via `UploadsModule`, compressed with Sharp
+- Stored in Cloudflare R2 (S3-compatible) if configured, else local `uploads/`
+- WhatsApp messages can send images directly from R2 URLs
 
 **Subscription Enforcement**:
 - Monthly quota with daily limits
@@ -85,6 +94,7 @@ Environment variables configured via `.env` (see `.env.example`):
 - `REDIS_*` - Redis connection
 - `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication
 - `MIDTRANS_*` - Payment gateway
+- `R2_*` - Cloudflare R2 storage (optional, falls back to local)
 
 ## Development Guidelines
 

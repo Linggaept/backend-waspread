@@ -111,6 +111,20 @@ export class BlastsService {
       throw new BadRequestException(`Blast cannot be started. Current status: ${blast.status}`);
     }
 
+    // Check if user has another blast in progress
+    const processingBlast = await this.blastRepository.findOne({
+      where: {
+        userId,
+        status: BlastStatus.PROCESSING,
+      },
+    });
+
+    if (processingBlast) {
+      throw new BadRequestException(
+        `You have a blast in progress (${processingBlast.name}). Please wait for it to complete before starting another.`
+      );
+    }
+
     // Check WhatsApp session again
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {

@@ -13,6 +13,8 @@ interface ClientInstance {
   client: Client;
   userId: string;
   isReady: boolean;
+  lastActivity: number; // Timestamp of last activity
+  isBlasting: boolean;  // Whether actively sending messages
 }
 
 @Injectable()
@@ -20,16 +22,31 @@ export class WhatsAppService implements OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private clients: Map<string, ClientInstance> = new Map();
   private mediaCache = new Map<string, { media: MessageMedia; expiresAt: number }>();
-  private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
+  
+  // Configuration constants
+  private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour media cache TTL
+  private readonly MAX_CONCURRENT_SESSIONS = parseInt(process.env.MAX_WA_SESSIONS || '20', 10);
+  private readonly IDLE_TIMEOUT_MS = parseInt(process.env.WA_IDLE_TIMEOUT_MINUTES || '15', 10) * 60 * 1000;
+  private readonly IDLE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
+  
+  private idleCheckTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(WhatsAppSession)
     private readonly sessionRepository: Repository<WhatsAppSession>,
     private readonly whatsappGateway: WhatsAppGateway,
     private readonly storageService: StorageService,
-  ) {}
+  ) {
+    // Start idle session cleanup timer
+    this.startIdleSessionCleanup();
+  }
 
   async onModuleDestroy() {
+    // Stop idle check timer
+    if (this.idleCheckTimer) {
+      clearInterval(this.idleCheckTimer);
+    }
+    
     // Cleanup all clients on shutdown
     for (const [userId, instance] of this.clients) {
       try {
@@ -44,11 +61,124 @@ export class WhatsAppService implements OnModuleDestroy {
     }
   }
 
-  async initializeSession(userId: string, retryCount = 0): Promise<{ status: string; qrCode?: string }> {
+  /**
+   * Start periodic cleanup of idle sessions
+   */
+  private startIdleSessionCleanup() {
+    this.idleCheckTimer = setInterval(async () => {
+      await this.cleanupIdleSessions();
+    }, this.IDLE_CHECK_INTERVAL_MS);
+    
+    this.logger.log(`Idle session cleanup started (timeout: ${this.IDLE_TIMEOUT_MS / 60000} min, max sessions: ${this.MAX_CONCURRENT_SESSIONS})`);
+  }
+
+  /**
+   * Disconnect sessions that have been idle too long
+   */
+  private async cleanupIdleSessions() {
+    const now = Date.now();
+    const idleSessions: string[] = [];
+
+    for (const [userId, instance] of this.clients) {
+      // Don't disconnect if actively blasting
+      if (instance.isBlasting) continue;
+      
+      const idleTime = now - instance.lastActivity;
+      if (idleTime > this.IDLE_TIMEOUT_MS) {
+        idleSessions.push(userId);
+      }
+    }
+
+    for (const userId of idleSessions) {
+      this.logger.log(`Auto-disconnecting idle session for user ${userId}`);
+      await this.forceDisconnect(userId);
+      
+      // Notify user via WebSocket
+      this.whatsappGateway.sendStatusUpdate(userId, {
+        status: SessionStatus.DISCONNECTED,
+        reason: 'Session disconnected due to inactivity. Please reconnect when needed.',
+      });
+    }
+
+    if (idleSessions.length > 0) {
+      this.logger.log(`Cleaned up ${idleSessions.length} idle session(s). Active: ${this.clients.size}`);
+    }
+  }
+
+  /**
+   * Get current session statistics
+   */
+  getSessionStats(): { active: number; max: number; available: number } {
+    return {
+      active: this.clients.size,
+      max: this.MAX_CONCURRENT_SESSIONS,
+      available: Math.max(0, this.MAX_CONCURRENT_SESSIONS - this.clients.size),
+    };
+  }
+
+  /**
+   * Update last activity timestamp for a session
+   */
+  private updateActivity(userId: string) {
+    const instance = this.clients.get(userId);
+    if (instance) {
+      instance.lastActivity = Date.now();
+    }
+  }
+
+  /**
+   * Mark session as blasting (protected from auto-disconnect)
+   */
+  setBlastingStatus(userId: string, isBlasting: boolean) {
+    const instance = this.clients.get(userId);
+    if (instance) {
+      instance.isBlasting = isBlasting;
+      instance.lastActivity = Date.now();
+    }
+  }
+
+  /**
+   * Check if a client instance is still valid (browser not crashed)
+   */
+  private isClientValid(instance: ClientInstance): boolean {
+    try {
+      // If client is marked as not ready, it's not valid for sending
+      if (!instance.isReady) {
+        return false;
+      }
+
+      // Check if the client's underlying browser/page is still accessible
+      // Note: These are internal whatsapp-web.js properties
+      const pupPage = (instance.client as any).pupPage;
+      const pupBrowser = (instance.client as any).pupBrowser;
+      
+      // Only check if these properties exist - if they don't exist yet, assume valid
+      // If browser exists but is disconnected, client is invalid
+      if (pupBrowser && typeof pupBrowser.isConnected === 'function' && !pupBrowser.isConnected()) {
+        this.logger.debug('Browser is disconnected');
+        return false;
+      }
+      
+      // If page exists but is closed, client is invalid
+      if (pupPage && typeof pupPage.isClosed === 'function' && pupPage.isClosed()) {
+        this.logger.debug('Page is closed');
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      // If any check throws, log it but assume valid to avoid false negatives
+      this.logger.debug(`isClientValid check error: ${error}`);
+      return true;
+    }
+  }
+
+  async initializeSession(userId: string, retryCount = 0): Promise<{ status: string; qrCode?: string; message?: string }> {
     // Check if client already exists
     if (this.clients.has(userId)) {
       const instance = this.clients.get(userId)!;
       if (instance.isReady) {
+        instance.lastActivity = Date.now();
         return { status: 'connected' };
       }
 
@@ -60,6 +190,15 @@ export class WhatsAppService implements OnModuleDestroy {
         this.logger.warn(`Error destroying stale client: ${e}`);
       }
       this.clients.delete(userId);
+    }
+
+    // Check session limit
+    if (this.clients.size >= this.MAX_CONCURRENT_SESSIONS) {
+      this.logger.warn(`Session limit reached (${this.clients.size}/${this.MAX_CONCURRENT_SESSIONS}). User ${userId} cannot connect.`);
+      return {
+        status: 'limit_reached',
+        message: `Server is at capacity (${this.MAX_CONCURRENT_SESSIONS} active sessions). Please try again later.`,
+      };
     }
 
     // Kill any orphan chromium processes for this session
@@ -89,9 +228,17 @@ export class WhatsAppService implements OnModuleDestroy {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--no-zygote',
-          '--single-process',
+          // Note: Removed --no-zygote and --single-process as they cause frame detachment issues
           '--disable-gpu',
+          '--disable-software-rasterizer',
+          // Memory optimization flags (safe ones only)
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
+          '--metrics-recording-only',
+          '--mute-audio',
         ],
       },
     });
@@ -100,6 +247,8 @@ export class WhatsAppService implements OnModuleDestroy {
       client,
       userId,
       isReady: false,
+      lastActivity: Date.now(),
+      isBlasting: false,
     };
 
     this.clients.set(userId, instance);
@@ -373,10 +522,22 @@ export class WhatsAppService implements OnModuleDestroy {
     try {
       // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
+      
+      // Update activity timestamp
+      this.updateActivity(userId);
+      
       await instance.client.sendMessage(chatId, message);
       return true;
-    } catch (error) {
-      this.logger.error(`Failed to send message for user ${userId}`, error);
+    } catch (error: any) {
+      const errorMessage = error?.message || String(error);
+      this.logger.error(`sendMessage error for user ${userId}: ${errorMessage}`);
+      
+      // Handle detached frame error specifically
+      if (errorMessage.includes('detached Frame') || errorMessage.includes('Protocol error') || errorMessage.includes('Target closed')) {
+        this.logger.warn(`Stale client detected for user ${userId}, forcing disconnect...`);
+        await this.forceDisconnect(userId);
+        throw new Error('WhatsApp session expired. Please reconnect.');
+      }
       throw error;
     }
   }
@@ -395,6 +556,9 @@ export class WhatsAppService implements OnModuleDestroy {
     try {
       // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
+
+      // Update activity timestamp
+      this.updateActivity(userId);
 
       // Load media based on source type
       let media: MessageMedia;
@@ -419,7 +583,13 @@ export class WhatsAppService implements OnModuleDestroy {
       });
 
       return true;
-    } catch (error) {
+    } catch (error: any) {
+      // Handle detached frame error specifically
+      if (error?.message?.includes('detached Frame') || error?.message?.includes('Protocol error')) {
+        this.logger.warn(`Stale client detected for user ${userId}, forcing disconnect...`);
+        await this.forceDisconnect(userId);
+        throw new Error('WhatsApp session expired. Please reconnect.');
+      }
       this.logger.error(`Failed to send message with media for user ${userId}`, error);
       throw error;
     }

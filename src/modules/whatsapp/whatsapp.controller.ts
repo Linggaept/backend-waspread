@@ -64,10 +64,12 @@ export class WhatsAppController {
   async getStatus(@CurrentUser('id') userId: string) {
     const session = await this.whatsappService.getSessionStatus(userId);
     const isReady = await this.whatsappService.isSessionReady(userId);
+    const stats = this.whatsappService.getSessionStats();
     
     return {
       session: session || { status: 'disconnected' },
       isReady,
+      serverCapacity: stats,
     };
   }
 
@@ -103,5 +105,14 @@ export class WhatsAppController {
   @ApiResponse({ status: 200, description: 'List of all user sessions' })
   async getAllSessions() {
     return this.whatsappService.getAllSessions();
+  }
+
+  @Get('sessions/stats')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get session server stats (Admin)' })
+  @ApiResponse({ status: 200, description: 'Server capacity and active sessions' })
+  getSessionStats() {
+    return this.whatsappService.getSessionStats();
   }
 }

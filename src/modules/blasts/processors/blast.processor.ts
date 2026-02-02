@@ -49,6 +49,9 @@ export class BlastProcessor extends WorkerHost {
     }
 
     try {
+      // Mark session as actively blasting (protects from auto-disconnect)
+      this.whatsappService.setBlastingStatus(userId, true);
+      
       // Send message with or without media
       if (imageUrl) {
         await this.whatsappService.sendMessageWithMedia(userId, phoneNumber, message, imageUrl);
@@ -114,6 +117,9 @@ export class BlastProcessor extends WorkerHost {
         status: newStatus,
         completedAt: new Date(),
       });
+
+      // Mark session as no longer blasting (allows auto-disconnect)
+      this.whatsappService.setBlastingStatus(blast.userId, false);
 
       this.logger.log(`Blast ${blastId} completed with status: ${newStatus}`);
     }
