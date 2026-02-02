@@ -11,6 +11,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PasswordReset } from '../../database/entities/password-reset.entity';
 import { MailModule } from '../mail/mail.module';
+import { TokenBlacklistService } from './services/token-blacklist.service';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { MailModule } from '../mail/mail.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, JwtStrategy, TokenBlacklistService],
+  exports: [AuthService, JwtModule, TokenBlacklistService],
 })
 export class AuthModule {}

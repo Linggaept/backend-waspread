@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -96,7 +97,19 @@ export class PaymentsService {
   }
 
   async handleNotification(notification: MidtransNotificationDto): Promise<void> {
-    const { order_id, transaction_status, fraud_status, transaction_id, payment_type } = notification;
+    const { order_id, transaction_status, fraud_status, transaction_id, payment_type, status_code, gross_amount, signature_key } = notification;
+
+    // Verify signature hash from Midtrans
+    const serverKey = this.configService.get<string>('midtrans.serverKey');
+    const expectedHash = crypto
+      .createHash('sha512')
+      .update(`${order_id}${status_code}${gross_amount}${serverKey}`)
+      .digest('hex');
+
+    if (expectedHash !== signature_key) {
+      this.logger.warn(`Invalid Midtrans signature for order: ${order_id}`);
+      throw new UnauthorizedException('Invalid signature');
+    }
 
     this.logger.log(`Received notification for order: ${order_id}, status: ${transaction_status}`);
 

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
@@ -18,6 +20,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } from './config';
+import { validate } from './config/env.validation';
 
 @Module({
   imports: [
@@ -26,7 +29,14 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } fr
       isGlobal: true,
       load: [databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig],
       envFilePath: ['.env'],
+      validate,
     }),
+
+    // Rate limiting
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 100,
+    }]),
 
     // Serve static files (uploads)
     ServeStaticModule.forRoot({
@@ -54,6 +64,12 @@ import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } fr
     TemplatesModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

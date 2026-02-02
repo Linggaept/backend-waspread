@@ -1,7 +1,7 @@
 import { IsOptional, IsString, IsInt, Min, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { PaymentStatus } from '../../database/entities/payment.entity';
+import { PaymentStatus } from '../../../database/entities/payment.entity';
 
 export enum PaymentSortBy {
   CREATED_AT = 'createdAt',
