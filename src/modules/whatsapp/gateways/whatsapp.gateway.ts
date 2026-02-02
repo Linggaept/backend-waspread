@@ -115,4 +115,60 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(`user:${userId}`).emit('blast-reply', reply);
     this.logger.log(`Reply notification sent to user ${userId} from ${reply.phoneNumber}`);
   }
+
+  // ==================== Blast Progress Events ====================
+
+  // Send blast started notification
+  sendBlastStarted(userId: string, data: {
+    blastId: string;
+    name: string;
+    total: number;
+  }) {
+    this.server.to(`user:${userId}`).emit('blast-started', data);
+    this.logger.log(`Blast started: ${data.name} (${data.total} recipients)`);
+  }
+
+  // Send blast progress notification
+  sendBlastProgress(userId: string, data: {
+    blastId: string;
+    sent: number;
+    failed: number;
+    pending: number;
+    total: number;
+    percentage: number;
+  }) {
+    this.server.to(`user:${userId}`).emit('blast-progress', data);
+  }
+
+  // Send blast completed notification
+  sendBlastCompleted(userId: string, data: {
+    blastId: string;
+    status: string;
+    sent: number;
+    failed: number;
+    duration: number; // in seconds
+  }) {
+    this.server.to(`user:${userId}`).emit('blast-completed', data);
+    this.logger.log(`Blast completed: ${data.blastId} - ${data.status} (${data.sent} sent, ${data.failed} failed)`);
+  }
+
+  // ==================== Subscription/Quota Events ====================
+
+  // Send quota warning notification
+  sendQuotaWarning(userId: string, data: {
+    remaining: number;
+    limit: number;
+    warningType: 'low' | 'critical' | 'depleted';
+  }) {
+    this.server.to(`user:${userId}`).emit('quota-warning', data);
+    this.logger.log(`Quota warning for user ${userId}: ${data.warningType} (${data.remaining}/${data.limit})`);
+  }
+
+  // Send subscription expired notification
+  sendSubscriptionExpired(userId: string, data: {
+    expiredAt: Date;
+  }) {
+    this.server.to(`user:${userId}`).emit('subscription-expired', data);
+    this.logger.log(`Subscription expired for user ${userId}`);
+  }
 }

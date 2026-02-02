@@ -11,6 +11,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Blast, BlastStatus, BlastMessage, MessageStatus } from '../../database/entities/blast.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateBlastDto, BlastQueryDto } from './dto';
 import { BlastJobData } from './processors/blast.processor';
@@ -27,6 +28,7 @@ export class BlastsService {
     @InjectQueue('blast')
     private readonly blastQueue: Queue<BlastJobData>,
     private readonly whatsappService: WhatsAppService,
+    private readonly whatsappGateway: WhatsAppGateway,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -177,6 +179,13 @@ export class BlastsService {
       .set({ status: MessageStatus.QUEUED })
       .whereInIds(messageIds)
       .execute();
+
+    // Send blast-started WebSocket event
+    this.whatsappGateway.sendBlastStarted(userId, {
+      blastId,
+      name: blast.name,
+      total: blast.totalRecipients,
+    });
 
     this.logger.log(`Blast ${blastId} started with ${messages.length} messages queued`);
 

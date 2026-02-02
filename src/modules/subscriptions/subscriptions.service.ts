@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
 import { PackagesService } from '../packages/packages.service';
+import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 
 @Injectable()
 export class SubscriptionsService {
@@ -21,6 +22,7 @@ export class SubscriptionsService {
     @InjectRepository(Subscription)
     private readonly subscriptionRepository: Repository<Subscription>,
     private readonly packagesService: PackagesService,
+    private readonly whatsappGateway: WhatsAppGateway,
   ) {}
 
   async activateSubscription(
@@ -73,6 +75,12 @@ export class SubscriptionsService {
     if (subscription.endDate < now) {
       subscription.status = SubscriptionStatus.EXPIRED;
       await this.subscriptionRepository.save(subscription);
+
+      // Send subscription expired notification
+      this.whatsappGateway.sendSubscriptionExpired(userId, {
+        expiredAt: subscription.endDate,
+      });
+
       return null;
     }
 
@@ -142,6 +150,31 @@ export class SubscriptionsService {
     subscription.usedQuota += count;
     subscription.todayUsed += count;
     await this.subscriptionRepository.save(subscription);
+
+    // Check and send quota warning
+    const pkg = subscription.package;
+    const remainingQuota = pkg.monthlyQuota - subscription.usedQuota;
+    const percentageRemaining = (remainingQuota / pkg.monthlyQuota) * 100;
+
+    if (remainingQuota <= 0) {
+      this.whatsappGateway.sendQuotaWarning(userId, {
+        remaining: 0,
+        limit: pkg.monthlyQuota,
+        warningType: 'depleted',
+      });
+    } else if (percentageRemaining <= 5) {
+      this.whatsappGateway.sendQuotaWarning(userId, {
+        remaining: remainingQuota,
+        limit: pkg.monthlyQuota,
+        warningType: 'critical',
+      });
+    } else if (percentageRemaining <= 10) {
+      this.whatsappGateway.sendQuotaWarning(userId, {
+        remaining: remainingQuota,
+        limit: pkg.monthlyQuota,
+        warningType: 'low',
+      });
+    }
   }
 
   async findByUser(userId: string): Promise<Subscription[]> {
@@ -162,6 +195,22 @@ export class SubscriptionsService {
   async expireOldSubscriptions(): Promise<number> {
     const now = new Date();
 
+    // First, get the subscriptions that will be expired to send notifications
+    const expiringSubscriptions = await this.subscriptionRepository.find({
+      where: {
+        status: SubscriptionStatus.ACTIVE,
+        endDate: LessThan(now),
+      },
+    });
+
+    // Send notifications to each user
+    for (const subscription of expiringSubscriptions) {
+      this.whatsappGateway.sendSubscriptionExpired(subscription.userId, {
+        expiredAt: subscription.endDate,
+      });
+    }
+
+    // Update status
     const result = await this.subscriptionRepository.update(
       {
         status: SubscriptionStatus.ACTIVE,

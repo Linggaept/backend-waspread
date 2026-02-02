@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Blast, BlastStatus, BlastMessage, MessageStatus } from '../../../database/entities/blast.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
+import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 
 export interface BlastJobData {
   blastId: string;
@@ -18,6 +19,7 @@ export interface BlastJobData {
 @Processor('blast')
 export class BlastProcessor extends WorkerHost {
   private readonly logger = new Logger(BlastProcessor.name);
+  private readonly PROGRESS_BATCH_SIZE = 5; // Send progress update every N messages
 
   constructor(
     @InjectRepository(Blast)
@@ -25,6 +27,7 @@ export class BlastProcessor extends WorkerHost {
     @InjectRepository(BlastMessage)
     private readonly messageRepository: Repository<BlastMessage>,
     private readonly whatsappService: WhatsAppService,
+    private readonly whatsappGateway: WhatsAppGateway,
   ) {
     super();
   }
@@ -71,6 +74,9 @@ export class BlastProcessor extends WorkerHost {
 
       this.logger.log(`Message ${messageId} sent successfully to ${phoneNumber}`);
 
+      // Send progress update
+      await this.sendProgressUpdate(blastId, userId);
+
       // Check if blast is complete
       await this.checkBlastCompletion(blastId);
     } catch (error) {
@@ -95,6 +101,9 @@ export class BlastProcessor extends WorkerHost {
         await this.blastRepository.increment({ id: blastId }, 'failedCount', 1);
         await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
 
+        // Send progress update
+        await this.sendProgressUpdate(blastId, userId);
+
         await this.checkBlastCompletion(blastId);
       }
     }
@@ -102,6 +111,27 @@ export class BlastProcessor extends WorkerHost {
 
   private async updateMessageStatus(messageId: string, status: MessageStatus): Promise<void> {
     await this.messageRepository.update(messageId, { status });
+  }
+
+  private async sendProgressUpdate(blastId: string, userId: string): Promise<void> {
+    const blast = await this.blastRepository.findOne({ where: { id: blastId } });
+    if (!blast) return;
+
+    const processed = blast.sentCount + blast.failedCount;
+
+    // Only send update every PROGRESS_BATCH_SIZE messages or when complete
+    if (processed % this.PROGRESS_BATCH_SIZE === 0 || blast.pendingCount === 0) {
+      const percentage = Math.round((processed / blast.totalRecipients) * 100);
+
+      this.whatsappGateway.sendBlastProgress(userId, {
+        blastId,
+        sent: blast.sentCount,
+        failed: blast.failedCount,
+        pending: blast.pendingCount,
+        total: blast.totalRecipients,
+        percentage,
+      });
+    }
   }
 
   private async checkBlastCompletion(blastId: string): Promise<void> {
@@ -113,13 +143,28 @@ export class BlastProcessor extends WorkerHost {
         ? BlastStatus.FAILED
         : BlastStatus.COMPLETED;
 
+      const completedAt = new Date();
       await this.blastRepository.update(blastId, {
         status: newStatus,
-        completedAt: new Date(),
+        completedAt,
       });
 
       // Mark session as no longer blasting (allows auto-disconnect)
       this.whatsappService.setBlastingStatus(blast.userId, false);
+
+      // Calculate duration in seconds
+      const duration = blast.startedAt
+        ? Math.round((completedAt.getTime() - blast.startedAt.getTime()) / 1000)
+        : 0;
+
+      // Send blast completed notification
+      this.whatsappGateway.sendBlastCompleted(blast.userId, {
+        blastId,
+        status: newStatus,
+        sent: blast.sentCount,
+        failed: blast.failedCount,
+        duration,
+      });
 
       this.logger.log(`Blast ${blastId} completed with status: ${newStatus}`);
     }
