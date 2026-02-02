@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, UserStatus } from '../../database/entities/user.entity';
-import { CreateUserDto, UpdateUserDto } from './dto';
+import { CreateUserDto, UpdateUserDto, UserQueryDto } from './dto';
 
 @Injectable()
 export class UsersService {
@@ -34,10 +34,25 @@ export class UsersService {
     return this.userRepository.save(user);
   }
 
-  async findAll(): Promise<User[]> {
-    return this.userRepository.find({
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(query?: UserQueryDto): Promise<{ data: User[]; total: number }> {
+    const { page = 1, limit = 10, search, sortBy = 'createdAt', order = 'DESC' } = query || {};
+
+    const qb = this.userRepository.createQueryBuilder('user');
+
+    if (search) {
+      qb.where(
+        '(user.name ILIKE :search OR user.email ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy(`user.${sortBy}`, order as 'ASC' | 'DESC');
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
   }
 
   async findOne(id: string): Promise<User> {

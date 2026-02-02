@@ -6,7 +6,7 @@ import * as Midtrans from 'midtrans-client';
 import { Payment, PaymentStatus } from '../../database/entities/payment.entity';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { CreatePaymentDto, MidtransNotificationDto } from './dto';
+import { CreatePaymentDto, MidtransNotificationDto, PaymentQueryDto } from './dto';
 
 @Injectable()
 export class PaymentsService {
@@ -168,10 +168,30 @@ export class PaymentsService {
     return payment;
   }
 
-  async findAll(): Promise<Payment[]> {
-    return this.paymentRepository.find({
-      relations: ['package', 'user'],
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(query?: PaymentQueryDto): Promise<{ data: Payment[]; total: number }> {
+    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+
+    const qb = this.paymentRepository.createQueryBuilder('payment');
+    qb.leftJoinAndSelect('payment.package', 'package');
+    qb.leftJoinAndSelect('payment.user', 'user');
+
+    if (status) {
+      qb.andWhere('payment.status = :status', { status });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(user.email ILIKE :search OR payment.orderId ILIKE :search OR payment.transactionId ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy(`payment.${sortBy}`, order as 'ASC' | 'DESC');
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
   }
 }

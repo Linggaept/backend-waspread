@@ -8,10 +8,11 @@ import {
   Delete,
   UseGuards,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, UserResponseDto } from './dto';
+import { CreateUserDto, UpdateUserDto, UserResponseDto, UserQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -35,11 +36,19 @@ export class UsersController {
 
   @Get()
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get all users (Admin)' })
-  @ApiResponse({ status: 200, description: 'List of all users', type: [UserResponseDto] })
-  async findAll() {
-    const users = await this.usersService.findAll();
-    return users.map((user) => this.usersService.excludePassword(user));
+  @ApiOperation({ summary: 'Get all users with pagination (Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of all users' })
+  async findAll(@Query() query: UserQueryDto) {
+    const { data, total } = await this.usersService.findAll(query);
+    const users = data.map((user) => this.usersService.excludePassword(user));
+    
+    return {
+      data: users,
+      total,
+      page: query.page || 1,
+      limit: query.limit || 10,
+      totalPages: Math.ceil(total / (query.limit || 10)),
+    };
   }
 
   @Get(':id')

@@ -7,11 +7,12 @@ import {
   Req,
   UseGuards,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
-import { CreatePaymentDto, MidtransNotificationDto } from './dto';
+import { CreatePaymentDto, MidtransNotificationDto, PaymentQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -58,10 +59,17 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Get all payments (Admin)' })
-  @ApiResponse({ status: 200, description: 'List of all payments' })
-  findAll() {
-    return this.paymentsService.findAll();
+  @ApiOperation({ summary: 'Get all payments with pagination (Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of all payments' })
+  async findAll(@Query() query: PaymentQueryDto) {
+    const { data, total } = await this.paymentsService.findAll(query);
+    return {
+      data,
+      total,
+      page: query.page || 1,
+      limit: query.limit || 10,
+      totalPages: Math.ceil(total / (query.limit || 10)),
+    };
   }
 
   @Get(':id')
