@@ -4,6 +4,7 @@ import { Repository, LessThan } from 'typeorm';
 import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
 import { PackagesService } from '../packages/packages.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
+import { SubscriptionQueryDto } from './dto';
 
 @Injectable()
 export class SubscriptionsService {
@@ -185,11 +186,31 @@ export class SubscriptionsService {
     });
   }
 
-  async findAll(): Promise<Subscription[]> {
-    return this.subscriptionRepository.find({
-      relations: ['package', 'user'],
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(query?: SubscriptionQueryDto): Promise<{ data: Subscription[]; total: number }> {
+    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+
+    const qb = this.subscriptionRepository.createQueryBuilder('subscription');
+    qb.leftJoinAndSelect('subscription.package', 'package');
+    qb.leftJoinAndSelect('subscription.user', 'user');
+
+    if (status) {
+      qb.andWhere('subscription.status = :status', { status });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(user.email ILIKE :search OR user.name ILIKE :search OR package.name ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy(`subscription.${sortBy}`, order as 'ASC' | 'DESC');
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
   }
 
   async expireOldSubscriptions(): Promise<number> {

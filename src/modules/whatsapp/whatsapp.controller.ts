@@ -4,6 +4,7 @@ import {
   Post,
   Delete,
   Body,
+  Query,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -14,7 +15,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
-import { SendMessageDto } from './dto';
+import { SendMessageDto, SessionQueryDto } from './dto';
 
 @ApiTags('WhatsApp')
 @ApiBearerAuth('JWT-auth')
@@ -101,10 +102,17 @@ export class WhatsAppController {
   @Get('sessions')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get all sessions (Admin)' })
-  @ApiResponse({ status: 200, description: 'List of all user sessions' })
-  async getAllSessions() {
-    return this.whatsappService.getAllSessions();
+  @ApiOperation({ summary: 'Get all sessions with pagination (Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of all user sessions' })
+  async getAllSessions(@Query() query: SessionQueryDto) {
+    const { data, total } = await this.whatsappService.getAllSessions(query);
+    return {
+      data,
+      total,
+      page: query.page || 1,
+      limit: query.limit || 10,
+      totalPages: Math.ceil(total / (query.limit || 10)),
+    };
   }
 
   @Get('sessions/stats')
@@ -116,3 +124,4 @@ export class WhatsAppController {
     return this.whatsappService.getSessionStats();
   }
 }
+

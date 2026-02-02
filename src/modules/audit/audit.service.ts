@@ -69,6 +69,45 @@ export class AuditService {
   }
 
   /**
+   * Get all audit logs with pagination, filtering and search (for admin)
+   */
+  async findAll(query: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    action?: AuditAction;
+    search?: string;
+  }): Promise<{ data: AuditLog[]; total: number }> {
+    const { page = 1, limit = 20, userId, action, search } = query;
+
+    const qb = this.auditLogRepository.createQueryBuilder('audit');
+    qb.leftJoinAndSelect('audit.user', 'user');
+
+    if (userId) {
+      qb.andWhere('audit.userId = :userId', { userId });
+    }
+
+    if (action) {
+      qb.andWhere('audit.action = :action', { action });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(user.email ILIKE :search OR audit.metadata::text ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy('audit.createdAt', 'DESC');
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
+  }
+
+  /**
    * Get recent audit logs (for admin dashboard)
    */
   async findRecent(limit: number = 100): Promise<AuditLog[]> {

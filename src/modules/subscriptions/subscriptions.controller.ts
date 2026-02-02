@@ -1,10 +1,12 @@
 import {
   Controller,
   Get,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
+import { SubscriptionQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -42,9 +44,17 @@ export class SubscriptionsController {
   @Get()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get all subscriptions (Admin)' })
-  @ApiResponse({ status: 200, description: 'List of all subscriptions' })
-  findAll() {
-    return this.subscriptionsService.findAll();
+  @ApiOperation({ summary: 'Get all subscriptions with pagination (Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of all subscriptions' })
+  async findAll(@Query() query: SubscriptionQueryDto) {
+    const { data, total } = await this.subscriptionsService.findAll(query);
+    return {
+      data,
+      total,
+      page: query.page || 1,
+      limit: query.limit || 10,
+      totalPages: Math.ceil(total / (query.limit || 10)),
+    };
   }
 }
+

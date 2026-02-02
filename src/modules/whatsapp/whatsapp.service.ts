@@ -824,9 +824,37 @@ export class WhatsAppService implements OnModuleDestroy {
     await this.sessionRepository.update({ userId }, updateData);
   }
 
-  async getAllSessions(): Promise<WhatsAppSession[]> {
-    return this.sessionRepository.find({
-      order: { updatedAt: 'DESC' },
-    });
+  async getAllSessions(query?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: SessionStatus;
+    sortBy?: string;
+    order?: 'ASC' | 'DESC';
+  }): Promise<{ data: WhatsAppSession[]; total: number }> {
+    const { page = 1, limit = 10, search, status, sortBy = 'updatedAt', order = 'DESC' } = query || {};
+
+    const qb = this.sessionRepository.createQueryBuilder('session');
+    qb.leftJoinAndSelect('session.user', 'user');
+
+    if (status) {
+      qb.andWhere('session.status = :status', { status });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(user.email ILIKE :search OR session.phoneNumber ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy(`session.${sortBy}`, order);
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
   }
 }
+

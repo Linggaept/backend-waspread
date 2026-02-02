@@ -31,6 +31,7 @@ import {
   ReplyQueryDto,
   BlastReplyDto,
   ReplyStatsDto,
+  BlastAdminQueryDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -355,9 +356,16 @@ export class BlastsController {
   @Get('admin/all')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get all blasts (Admin)' })
-  @ApiResponse({ status: 200, description: 'List of all system blasts' })
-  findAllAdmin() {
-    return this.blastsService.findAllAdmin();
+  @ApiOperation({ summary: 'Get all blasts with pagination (Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of all system blasts' })
+  async findAllAdmin(@Query() query: BlastAdminQueryDto) {
+    const { data, total } = await this.blastsService.findAllAdmin(query);
+    return {
+      data,
+      total,
+      page: query.page || 1,
+      limit: query.limit || 10,
+      totalPages: Math.ceil(total / (query.limit || 10)),
+    };
   }
 }

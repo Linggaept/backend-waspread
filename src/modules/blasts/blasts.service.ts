@@ -320,11 +320,37 @@ export class BlastsService {
     };
   }
 
-  async findAllAdmin(): Promise<Blast[]> {
-    return this.blastRepository.find({
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-    });
+  async findAllAdmin(query?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: BlastStatus;
+    sortBy?: string;
+    order?: 'ASC' | 'DESC';
+  }): Promise<{ data: Blast[]; total: number }> {
+    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+
+    const qb = this.blastRepository.createQueryBuilder('blast');
+    qb.leftJoinAndSelect('blast.user', 'user');
+
+    if (status) {
+      qb.andWhere('blast.status = :status', { status });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(blast.name ILIKE :search OR user.email ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy(`blast.${sortBy}`, order);
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return { data, total };
   }
 
   private formatPhoneNumber(phone: string): string {
@@ -335,3 +361,4 @@ export class BlastsService {
     return cleaned;
   }
 }
+
