@@ -21,11 +21,43 @@ export class PaymentsService {
     private readonly packagesService: PackagesService,
     private readonly subscriptionsService: SubscriptionsService,
   ) {
+    // Try both methods to get the key
+    const serverKey = this.configService.get<string>('midtrans.serverKey') || process.env.MIDTRANS_SERVER_KEY;
+    const clientKey = this.configService.get<string>('midtrans.clientKey') || process.env.MIDTRANS_CLIENT_KEY;
+
+    // Use nullish coalescing for boolean to properly handle false value
+    const configIsProduction = this.configService.get<boolean>('midtrans.isProduction');
+    const isProduction = configIsProduction !== undefined ? configIsProduction : (process.env.MIDTRANS_IS_PRODUCTION === 'true');
+
+    // Debug: Check both sources
+    this.logger.log(`ConfigService serverKey: ${this.configService.get<string>('midtrans.serverKey')?.substring(0, 15) || 'UNDEFINED'}`);
+    this.logger.log(`ConfigService isProduction: ${this.configService.get<boolean>('midtrans.isProduction')}`);
+    this.logger.log(`process.env MIDTRANS_IS_PRODUCTION: "${process.env.MIDTRANS_IS_PRODUCTION}"`);
+    this.logger.log(`Final isProduction: ${isProduction}`);
+
+    if (!serverKey || !clientKey) {
+      this.logger.warn('Midtrans keys not configured. Payment features will not work.');
+    } else {
+      // Log partial key for debugging (first 20 chars only)
+      const maskedServerKey = serverKey.substring(0, 20) + '...';
+      const maskedClientKey = clientKey.substring(0, 20) + '...';
+      this.logger.log(`Midtrans initialized (${isProduction ? 'PRODUCTION' : 'SANDBOX'} mode)`);
+      this.logger.log(`Server Key: ${maskedServerKey} (length: ${serverKey.length})`);
+      this.logger.log(`Client Key: ${maskedClientKey} (length: ${clientKey.length})`);
+    }
+
+    // Log the exact value being passed to Midtrans
+    const finalIsProduction = Boolean(isProduction);
+    this.logger.log(`[CONSTRUCTOR] Passing to Midtrans.Snap: isProduction=${finalIsProduction} (type: ${typeof finalIsProduction})`);
+
     this.snap = new Midtrans.Snap({
-      isProduction: this.configService.get<boolean>('midtrans.isProduction'),
-      serverKey: this.configService.get<string>('midtrans.serverKey'),
-      clientKey: this.configService.get<string>('midtrans.clientKey'),
+      isProduction: finalIsProduction,
+      serverKey: serverKey,
+      clientKey: clientKey,
     });
+
+    // Verify what Midtrans actually stored
+    this.logger.log(`[CONSTRUCTOR] Midtrans.Snap stored: isProduction=${(this.snap as any).apiConfig?.isProduction}`);
   }
 
   async createPayment(
@@ -33,6 +65,20 @@ export class PaymentsService {
     userEmail: string,
     createPaymentDto: CreatePaymentDto,
   ): Promise<{ payment: Payment; snapToken: string; redirectUrl: string }> {
+    // Debug: Log which key is being used
+    const configKey = this.configService.get<string>('midtrans.serverKey');
+    const envKey = process.env.MIDTRANS_SERVER_KEY;
+    this.logger.log(`[DEBUG] ConfigService key: ${configKey?.substring(0, 25) || 'NULL'}`);
+    this.logger.log(`[DEBUG] process.env key: ${envKey?.substring(0, 25) || 'NULL'}`);
+
+    // Check Midtrans configuration
+    const serverKey = configKey || envKey;
+    if (!serverKey) {
+      throw new BadRequestException(
+        'Payment gateway not configured. Please contact administrator.'
+      );
+    }
+
     // Get package
     const pkg = await this.packagesService.findOne(createPaymentDto.packageId);
     if (!pkg.isActive) {
@@ -73,6 +119,12 @@ export class PaymentsService {
     ];
 
     try {
+      // Debug: Log snap config
+      this.logger.log(`[DEBUG] Snap apiConfig: ${JSON.stringify({
+        serverKey: (this.snap as any).apiConfig?.serverKey?.substring(0, 25) || 'NULL',
+        isProduction: (this.snap as any).apiConfig?.isProduction,
+      })}`);
+
       const snapResponse = await this.snap.createTransaction({
         transaction_details: transactionDetails,
         customer_details: customerDetails,
@@ -88,11 +140,24 @@ export class PaymentsService {
         snapToken: snapResponse.token,
         redirectUrl: snapResponse.redirect_url,
       };
-    } catch (error) {
-      this.logger.error('Failed to create Midtrans transaction', error);
+    } catch (error: any) {
+      // Log detailed error from Midtrans
+      const errorMessage = error?.message || String(error);
+      const errorResponse = error?.ApiResponse || error?.httpStatusCode || 'No response';
+      this.logger.error(`Failed to create Midtrans transaction: ${errorMessage}`, {
+        errorResponse,
+        orderId,
+        packageId: pkg.id,
+        amount: pkg.price,
+      });
+
       payment.status = PaymentStatus.FAILED;
       await this.paymentRepository.save(payment);
-      throw new BadRequestException('Failed to create payment');
+
+      // Return more helpful error message
+      throw new BadRequestException(
+        `Failed to create payment: ${errorMessage}. Please check Midtrans configuration.`
+      );
     }
   }
 

@@ -50,10 +50,12 @@ npm run docker:logs             # Follow logs
 - `templates/` - Message template management for reusable blast content
 - `uploads/` - File uploads with Cloudflare R2 storage and image compression
 - `reports/` - Dashboard stats and CSV exports
+- `audit/` - Audit logging system for tracking user actions and system events
+- `mail/` - Email service using Nodemailer with Handlebars templates
 - `health/` - System health endpoints
 
 **Core Entities** (`src/database/entities/`):
-- User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, Contact, Template
+- User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, Contact, Template, BlastReply, PasswordReset, AuditLog
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
