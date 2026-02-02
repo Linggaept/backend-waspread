@@ -12,6 +12,8 @@ import { PasswordReset } from '../../database/entities/password-reset.entity';
 import { MailService } from '../mail/mail.service';
 import { v4 as uuidv4 } from 'uuid';
 import { BadRequestException } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../../database/entities/audit-log.entity';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +25,7 @@ export class AuthService {
     @InjectRepository(PasswordReset)
     private readonly passwordResetRepository: Repository<PasswordReset>,
     private readonly mailService: MailService,
+    private readonly auditService: AuditService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -54,6 +57,13 @@ export class AuthService {
     } catch (error) {
       console.error('Failed to assign free trial:', error);
     }
+
+    // Audit log
+    this.auditService.log({
+      userId: user.id,
+      action: AuditAction.REGISTER,
+      metadata: { email: user.email },
+    });
 
     return {
       accessToken: token,
@@ -90,6 +100,13 @@ export class AuthService {
 
     // Generate token
     const token = this.generateToken(user.id, user.email, user.role);
+
+    // Audit log
+    this.auditService.log({
+      userId: user.id,
+      action: AuditAction.LOGIN,
+      metadata: { email: user.email },
+    });
 
     return {
       accessToken: token,
