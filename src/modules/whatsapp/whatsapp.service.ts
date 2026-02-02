@@ -545,6 +545,26 @@ export class WhatsAppService implements OnModuleDestroy {
     return this.sessionRepository.findOne({ where: { userId } });
   }
 
+  /**
+   * Check if a phone number is registered on WhatsApp
+   */
+  async isNumberRegistered(userId: string, phoneNumber: string): Promise<boolean> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    try {
+      const chatId = this.formatPhoneNumber(phoneNumber);
+      const isRegistered = await instance.client.isRegisteredUser(chatId);
+      return isRegistered;
+    } catch (error) {
+      this.logger.warn(`Failed to check if number ${phoneNumber} is registered: ${error}`);
+      // If check fails, assume registered to avoid false negatives
+      return true;
+    }
+  }
+
   async sendMessage(userId: string, phoneNumber: string, message: string): Promise<boolean> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {

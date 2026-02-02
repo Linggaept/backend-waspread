@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Blast, BlastStatus, BlastMessage, MessageStatus } from '../../../database/entities/blast.entity';
+import { Blast, BlastStatus, BlastMessage, MessageStatus, MessageErrorType } from '../../../database/entities/blast.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 
@@ -54,6 +54,27 @@ export class BlastProcessor extends WorkerHost {
     try {
       // Mark session as actively blasting (protects from auto-disconnect)
       this.whatsappService.setBlastingStatus(userId, true);
+
+      // Check if number is registered on WhatsApp FIRST
+      const isRegistered = await this.whatsappService.isNumberRegistered(userId, phoneNumber);
+      
+      if (!isRegistered) {
+        this.logger.log(`Number ${phoneNumber} is not registered on WhatsApp, skipping`);
+        
+        await this.messageRepository.update(messageId, {
+          status: MessageStatus.INVALID_NUMBER,
+          errorType: MessageErrorType.INVALID_NUMBER,
+          errorMessage: 'Number not registered on WhatsApp',
+        });
+        
+        await this.blastRepository.increment({ id: blastId }, 'invalidCount', 1);
+        await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
+        
+        // Send progress update
+        await this.sendProgressUpdate(blastId, userId);
+        await this.checkBlastCompletion(blastId);
+        return; // Skip without retry
+      }
       
       // Send message with or without media
       if (imageUrl) {
@@ -82,6 +103,9 @@ export class BlastProcessor extends WorkerHost {
     } catch (error) {
       this.logger.error(`Failed to send message ${messageId}: ${error}`);
 
+      // Categorize the error
+      const errorType = this.categorizeError(error);
+
       // Update retry count
       const blastMessage = await this.messageRepository.findOne({ where: { id: messageId } });
       if (blastMessage && blastMessage.retryCount < 3) {
@@ -89,6 +113,7 @@ export class BlastProcessor extends WorkerHost {
         await this.messageRepository.update(messageId, {
           retryCount: blastMessage.retryCount + 1,
           errorMessage: String(error),
+          errorType,
         });
         throw error;
       } else {
@@ -96,6 +121,7 @@ export class BlastProcessor extends WorkerHost {
         await this.messageRepository.update(messageId, {
           status: MessageStatus.FAILED,
           errorMessage: String(error),
+          errorType,
         });
 
         await this.blastRepository.increment({ id: blastId }, 'failedCount', 1);
@@ -109,6 +135,24 @@ export class BlastProcessor extends WorkerHost {
     }
   }
 
+  private categorizeError(error: any): MessageErrorType {
+    const msg = (error?.message || String(error)).toLowerCase();
+    
+    if (msg.includes('not registered') || msg.includes('invalid number')) {
+      return MessageErrorType.INVALID_NUMBER;
+    }
+    if (msg.includes('timeout') || msg.includes('network') || msg.includes('econnrefused')) {
+      return MessageErrorType.NETWORK_ERROR;
+    }
+    if (msg.includes('session') || msg.includes('disconnected') || msg.includes('detached') || msg.includes('expired')) {
+      return MessageErrorType.SESSION_ERROR;
+    }
+    if (msg.includes('rate') || msg.includes('limit') || msg.includes('too many') || msg.includes('spam')) {
+      return MessageErrorType.RATE_LIMITED;
+    }
+    return MessageErrorType.UNKNOWN;
+  }
+
   private async updateMessageStatus(messageId: string, status: MessageStatus): Promise<void> {
     await this.messageRepository.update(messageId, { status });
   }
@@ -117,7 +161,7 @@ export class BlastProcessor extends WorkerHost {
     const blast = await this.blastRepository.findOne({ where: { id: blastId } });
     if (!blast) return;
 
-    const processed = blast.sentCount + blast.failedCount;
+    const processed = blast.sentCount + blast.failedCount + blast.invalidCount;
 
     // Only send update every PROGRESS_BATCH_SIZE messages or when complete
     if (processed % this.PROGRESS_BATCH_SIZE === 0 || blast.pendingCount === 0) {
@@ -127,6 +171,7 @@ export class BlastProcessor extends WorkerHost {
         blastId,
         sent: blast.sentCount,
         failed: blast.failedCount,
+        invalid: blast.invalidCount,
         pending: blast.pendingCount,
         total: blast.totalRecipients,
         percentage,
@@ -139,9 +184,9 @@ export class BlastProcessor extends WorkerHost {
     if (!blast) return;
 
     if (blast.pendingCount === 0 && blast.status === BlastStatus.PROCESSING) {
-      const newStatus = blast.failedCount === blast.totalRecipients
-        ? BlastStatus.FAILED
-        : BlastStatus.COMPLETED;
+      // Consider failed if all messages failed or were invalid
+      const allFailed = (blast.failedCount + blast.invalidCount) === blast.totalRecipients;
+      const newStatus = allFailed ? BlastStatus.FAILED : BlastStatus.COMPLETED;
 
       const completedAt = new Date();
       await this.blastRepository.update(blastId, {
@@ -163,6 +208,7 @@ export class BlastProcessor extends WorkerHost {
         status: newStatus,
         sent: blast.sentCount,
         failed: blast.failedCount,
+        invalid: blast.invalidCount,
         duration,
       });
 

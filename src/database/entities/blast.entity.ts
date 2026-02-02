@@ -56,6 +56,9 @@ export class Blast {
   failedCount: number;
 
   @Column({ default: 0 })
+  invalidCount: number;
+
+  @Column({ default: 0 })
   pendingCount: number;
 
   @Column({ default: 3000 })
@@ -95,6 +98,16 @@ export enum MessageStatus {
   SENT = 'sent',
   FAILED = 'failed',
   CANCELLED = 'cancelled',
+  INVALID_NUMBER = 'invalid_number',
+}
+
+export enum MessageErrorType {
+  NONE = 'none',
+  INVALID_NUMBER = 'invalid_number',
+  NETWORK_ERROR = 'network_error',
+  SESSION_ERROR = 'session_error',
+  RATE_LIMITED = 'rate_limited',
+  UNKNOWN = 'unknown',
 }
 
 @Entity('blast_messages')
@@ -128,6 +141,13 @@ export class BlastMessage {
 
   @Column({ nullable: true })
   errorMessage: string;
+
+  @Column({
+    type: 'enum',
+    enum: MessageErrorType,
+    default: MessageErrorType.NONE,
+  })
+  errorType: MessageErrorType;
 
   @Column({ nullable: true })
   sentAt: Date;

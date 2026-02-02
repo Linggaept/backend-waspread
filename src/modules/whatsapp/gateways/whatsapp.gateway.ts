@@ -133,6 +133,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     blastId: string;
     sent: number;
     failed: number;
+    invalid: number;
     pending: number;
     total: number;
     percentage: number;
@@ -146,10 +147,11 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     status: string;
     sent: number;
     failed: number;
+    invalid: number;
     duration: number; // in seconds
   }) {
     this.server.to(`user:${userId}`).emit('blast-completed', data);
-    this.logger.log(`Blast completed: ${data.blastId} - ${data.status} (${data.sent} sent, ${data.failed} failed)`);
+    this.logger.log(`Blast completed: ${data.blastId} - ${data.status} (${data.sent} sent, ${data.failed} failed, ${data.invalid} invalid)`);
   }
 
   // ==================== Subscription/Quota Events ====================
