@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import { StorageService } from './storage.service';
 
 export interface ParsedPhoneNumbers {
@@ -39,7 +39,7 @@ export class UploadsService {
     });
   }
 
-  parsePhoneNumbersFile(filePath: string): ParsedPhoneNumbers {
+  async parsePhoneNumbersFile(filePath: string): Promise<ParsedPhoneNumbers> {
     const ext = path.extname(filePath).toLowerCase();
 
     if (!this.ALLOWED_PHONE_EXTENSIONS.includes(ext)) {
@@ -56,43 +56,56 @@ export class UploadsService {
     }
 
     try {
-      const workbook = XLSX.readFile(filePath);
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-
-      // Convert to array of arrays
-      const data: string[][] = XLSX.utils.sheet_to_json(sheet, {
-        header: 1,
-        defval: '',
-      });
-
-      if (!data || data.length === 0) {
-        throw new BadRequestException('File is empty');
-      }
-
       const phoneNumbers: string[] = [];
       let invalidCount = 0;
+      
+      const workbook = new ExcelJS.Workbook();
+      if (ext === '.csv') {
+        await workbook.csv.readFile(filePath);
+      } else {
+        await workbook.xlsx.readFile(filePath);
+      }
+      
+      const sheet = workbook.getWorksheet(1);
+      if (!sheet) {
+         throw new BadRequestException('File is empty or corrupted');
+      }
 
       // Check if first row looks like a header
-      const firstRow = data[0];
-      const startIndex = this.isHeaderRow(firstRow) ? 1 : 0;
-
-      for (let i = startIndex; i < data.length; i++) {
-        const row = data[i];
-        if (row && row.length > 0) {
-          // Get first column value
-          const rawPhone = String(row[0]).trim();
-          if (rawPhone) {
-            const formatted = this.formatPhoneNumber(rawPhone);
-            if (this.isValidPhoneNumber(formatted)) {
-              phoneNumbers.push(formatted);
-            } else {
-              invalidCount++;
-              this.logger.debug(`Invalid phone number skipped: ${rawPhone}`);
-            }
-          }
-        }
+      const firstRow = sheet.getRow(1);
+      
+      // Handle sparse array (ExcelJS values are 1-based, index 0 is invalid/undefined)
+      // .values return [ <empty>, val1, val2 ]
+      // We want to check meaningful values
+      let headerValues: string[] = [];
+      
+      if (Array.isArray(firstRow.values)) {
+         headerValues = (firstRow.values as any[]).slice(1).map(v => String(v));
+      } else if (typeof firstRow.values === 'object') {
+         // Some versions might behave differently or sparse object
+         headerValues = Object.values(firstRow.values).map(v => String(v));
       }
+
+      const startIndex = this.isHeaderRow(headerValues) ? 2 : 1;
+      
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber < startIndex) return;
+        
+        // Column 1
+        const cellValue = row.getCell(1).value;
+        if (cellValue) {
+           const rawPhone = String(cellValue).trim();
+            if (rawPhone) {
+              const formatted = this.formatPhoneNumber(rawPhone);
+              if (this.isValidPhoneNumber(formatted)) {
+                phoneNumbers.push(formatted);
+              } else {
+                invalidCount++;
+                this.logger.debug(`Invalid phone number skipped: ${rawPhone}`);
+              }
+            }
+        }
+      });
 
       if (phoneNumbers.length === 0) {
         throw new BadRequestException(
@@ -126,6 +139,7 @@ export class UploadsService {
   private isHeaderRow(row: string[]): boolean {
     if (!row || row.length === 0) return false;
 
+    // Check first column value
     const firstCell = String(row[0]).toLowerCase().trim();
     const headerKeywords = [
       'phone',

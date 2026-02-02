@@ -81,6 +81,13 @@ export class UsersService {
     return this.userRepository.save(user);
   }
 
+  async updatePassword(id: string, newPassword: string): Promise<void> {
+    const user = await this.findOne(id);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await this.userRepository.save(user);
+  }
+
   // Helper to exclude password from response
   excludePassword(user: User): Omit<User, 'password'> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

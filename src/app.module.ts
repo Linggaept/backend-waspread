@@ -17,14 +17,14 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
-import { databaseConfig, redisConfig, appConfig, midtransConfig } from './config';
+import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } from './config';
 
 @Module({
   imports: [
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, redisConfig, appConfig, midtransConfig],
+      load: [databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig],
       envFilePath: ['.env'],
     }),
 

@@ -23,6 +23,8 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ContactsService } from './contacts.service';
+import * as ExcelJS from 'exceljs';
+import * as path from 'path';
 import {
   CreateContactDto,
   UpdateContactDto,
@@ -100,7 +102,7 @@ export class ContactsController {
 
     try {
       this.uploadsService.validatePhoneFile(file);
-      const contacts = this.parseContactsFile(file.path, importDto.tags);
+      const contacts = await this.parseContactsFile(file.path, importDto.tags);
 
       if (contacts.length === 0) {
         throw new BadRequestException('No valid contacts found in file');
@@ -214,30 +216,38 @@ export class ContactsController {
     return this.contactsService.bulkRemove(userId, ids);
   }
 
-  private parseContactsFile(
+  private async parseContactsFile(
     filePath: string,
     tags?: string[],
-  ): CreateContactDto[] {
-    const XLSX = require('xlsx');
-    const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
+  ): Promise<CreateContactDto[]> {
+    const workbook = new ExcelJS.Workbook();
+    const ext = path.extname(filePath).toLowerCase();
 
-    // Convert to array of objects with headers
-    const data: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet, {
-      defval: '',
-    });
-
-    if (!data || data.length === 0) {
-      return [];
+    if (ext === '.csv') {
+      await workbook.csv.readFile(filePath);
+    } else {
+      await workbook.xlsx.readFile(filePath);
     }
 
+    const sheet = workbook.getWorksheet(1);
+    if (!sheet) return [];
+
     const contacts: CreateContactDto[] = [];
+    
+    // Get headers
+    const firstRowValues = sheet.getRow(1).values;
+    let headers: string[] = [];
+    
+    if (Array.isArray(firstRowValues)) {
+        // exceljs values are 1-based, index 0 is undefined usually
+        headers = (firstRowValues as any[]).slice(1).map(h => String(h || '').toLowerCase().trim());
+    } else if (typeof firstRowValues === 'object') {
+        headers = Object.values(firstRowValues).map(h => String(h || '').toLowerCase().trim());
+    }
 
-    // Try to detect column names
-    const headers = Object.keys(data[0]).map((h) => h.toLowerCase().trim());
+    if (headers.length === 0) return [];
 
-    const phoneCol = this.findColumn(headers, [
+    const phoneColIdx = this.findColumn(headers, [
       'phone',
       'phoneNumber',
       'phone_number',
@@ -250,30 +260,40 @@ export class ContactsController {
       'telepon',
       'handphone',
     ]);
-    const nameCol = this.findColumn(headers, ['name', 'nama', 'fullname', 'full_name']);
-    const emailCol = this.findColumn(headers, ['email', 'e-mail', 'mail']);
-    const notesCol = this.findColumn(headers, ['notes', 'note', 'catatan', 'keterangan']);
+    const nameColIdx = this.findColumn(headers, ['name', 'nama', 'fullname', 'full_name']);
+    const emailColIdx = this.findColumn(headers, ['email', 'e-mail', 'mail']);
+    const notesColIdx = this.findColumn(headers, ['notes', 'note', 'catatan', 'keterangan']);
 
-    for (const row of data) {
-      const keys = Object.keys(row);
-      const phone = phoneCol !== null ? String(row[keys[phoneCol]] || '').trim() : '';
+    sheet.eachRow((row, rowNumber) => {
+       if (rowNumber === 1) return; // Skip header
 
-      if (!phone || phone.length < 10) continue;
+       // ExcelJS rows are 1-based.
+       // headers array is 0-based corresponding to Excel column 1, 2, 3...
+       // so headers[0] is col 1.
+       // logic: phoneColIdx (0-based) -> getCell(phoneColIdx + 1)
+       
+       const phone = phoneColIdx !== null ? String(row.getCell(phoneColIdx + 1).value || '').trim() : '';
+       // Some value might be object (rich text) or result. taking .value usually works for simple text.
 
-      const contact: CreateContactDto = {
+       if (!phone || phone.length < 10) return;
+
+       const contact: CreateContactDto = {
         phoneNumber: phone,
-      };
+       };
 
-      if (nameCol !== null && row[keys[nameCol]]) {
-        contact.name = String(row[keys[nameCol]]).trim();
+      if (nameColIdx !== null) {
+        const val = row.getCell(nameColIdx + 1).value;
+        if (val) contact.name = String(val).trim();
       }
 
-      if (emailCol !== null && row[keys[emailCol]]) {
-        contact.email = String(row[keys[emailCol]]).trim();
+      if (emailColIdx !== null) {
+         const val = row.getCell(emailColIdx + 1).value;
+         if (val) contact.email = String(val).trim();
       }
 
-      if (notesCol !== null && row[keys[notesCol]]) {
-        contact.notes = String(row[keys[notesCol]]).trim();
+      if (notesColIdx !== null) {
+        const val = row.getCell(notesColIdx + 1).value;
+        if (val) contact.notes = String(val).trim();
       }
 
       if (tags && tags.length > 0) {
@@ -281,7 +301,7 @@ export class ContactsController {
       }
 
       contacts.push(contact);
-    }
+    });
 
     return contacts;
   }

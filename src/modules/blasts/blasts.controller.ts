@@ -174,7 +174,7 @@ export class BlastsController {
       // Process phone numbers file if provided
       if (phonesFile) {
         this.uploadsService.validatePhoneFile(phonesFile);
-        const parsed = this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
+        const parsed = await this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
         phoneNumbers = parsed.phoneNumbers;
         // Cleanup temp file after parsing
         this.uploadsService.cleanupTempFile(phonesFile.path);

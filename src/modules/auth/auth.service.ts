@@ -4,8 +4,14 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { RegisterDto, LoginDto } from './dto';
+import { RegisterDto, LoginDto, ForgotPasswordDto, VerifyResetCodeDto, ResetPasswordDto } from './dto';
 import { UserStatus } from '../../database/entities/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, MoreThan } from 'typeorm';
+import { PasswordReset } from '../../database/entities/password-reset.entity';
+import { MailService } from '../mail/mail.service';
+import { v4 as uuidv4 } from 'uuid';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class AuthService {
@@ -14,6 +20,9 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly packagesService: PackagesService,
     private readonly subscriptionsService: SubscriptionsService,
+    @InjectRepository(PasswordReset)
+    private readonly passwordResetRepository: Repository<PasswordReset>,
+    private readonly mailService: MailService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -96,6 +105,89 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.usersService.findOne(userId);
     return this.usersService.excludePassword(user);
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const user = await this.usersService.findByEmail(forgotPasswordDto.email);
+    
+    // Always return success even if user not found (security)
+    if (!user) {
+      return { message: 'If your email is registered, you will receive a reset code shortly.' };
+    }
+
+    // Generate 6 digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 15); // 15 mins expiry
+
+    // Save to DB
+    await this.passwordResetRepository.save({
+      userId: user.id,
+      email: user.email,
+      code,
+      expiresAt,
+    });
+
+    // Send email
+    await this.mailService.sendPasswordResetCode(user.email, code, user.name);
+
+    return { message: 'If your email is registered, you will receive a reset code shortly.' };
+  }
+
+  async verifyResetCode(verifyDto: VerifyResetCodeDto) {
+    const { email, code } = verifyDto;
+
+    const resetRequest = await this.passwordResetRepository.findOne({
+      where: {
+        email,
+        code,
+        isVerified: false,
+        isUsed: false,
+        expiresAt: MoreThan(new Date()),
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!resetRequest) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    // Generate reset token
+    const resetToken = uuidv4();
+    
+    // Update request
+    resetRequest.isVerified = true;
+    resetRequest.resetToken = resetToken;
+    await this.passwordResetRepository.save(resetRequest);
+
+    return { resetToken };
+  }
+
+  async resetPassword(resetDto: ResetPasswordDto) {
+    const { resetToken, newPassword } = resetDto;
+
+    const resetRequest = await this.passwordResetRepository.findOne({
+      where: {
+        resetToken,
+        isVerified: true,
+        isUsed: false,
+        expiresAt: MoreThan(new Date()),
+      },
+      relations: ['user'],
+    });
+
+    if (!resetRequest) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Update password
+    await this.usersService.updatePassword(resetRequest.userId, newPassword);
+
+    // Mark as used
+    resetRequest.isUsed = true;
+    await this.passwordResetRepository.save(resetRequest);
+
+    return { message: 'Password reset successful. You can now login with your new password.' };
   }
 
   private generateToken(userId: string, email: string, role: string): string {

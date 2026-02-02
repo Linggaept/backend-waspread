@@ -8,12 +8,17 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { PackagesModule } from '../packages/packages.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { PasswordReset } from '../../database/entities/password-reset.entity';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     UsersModule,
     PackagesModule,
     SubscriptionsModule,
+    MailModule,
+    TypeOrmModule.forFeature([PasswordReset]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
