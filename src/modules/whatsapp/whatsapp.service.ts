@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, Inject, forwardRef, Optional } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,6 +8,11 @@ import * as qrcode from 'qrcode';
 import { WhatsAppSession, SessionStatus } from '../../database/entities/whatsapp-session.entity';
 import { WhatsAppGateway } from './gateways/whatsapp.gateway';
 import { StorageService } from '../uploads/storage.service';
+
+// Interface for reply detection handler
+export interface ReplyHandler {
+  handleIncomingMessage(userId: string, phoneNumber: string, message: any): Promise<any>;
+}
 
 interface ClientInstance {
   client: Client;
@@ -28,8 +33,9 @@ export class WhatsAppService implements OnModuleDestroy {
   private readonly MAX_CONCURRENT_SESSIONS = parseInt(process.env.MAX_WA_SESSIONS || '20', 10);
   private readonly IDLE_TIMEOUT_MS = parseInt(process.env.WA_IDLE_TIMEOUT_MINUTES || '15', 10) * 60 * 1000;
   private readonly IDLE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
-  
+
   private idleCheckTimer: NodeJS.Timeout | null = null;
+  private replyHandler: ReplyHandler | null = null;
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -59,6 +65,14 @@ export class WhatsAppService implements OnModuleDestroy {
         this.cleanupSessionLock(userId);
       }
     }
+  }
+
+  /**
+   * Set the reply handler for processing incoming messages
+   */
+  setReplyHandler(handler: ReplyHandler) {
+    this.replyHandler = handler;
+    this.logger.log('Reply handler registered');
   }
 
   /**
@@ -466,6 +480,24 @@ export class WhatsAppService implements OnModuleDestroy {
         status: SessionStatus.DISCONNECTED,
         reason,
       });
+    });
+
+    // Listen for incoming messages for reply detection
+    client.on('message', async (message: any) => {
+      try {
+        // Ignore messages sent by the user themselves
+        if (message.fromMe) return;
+
+        // Extract phone number from message
+        const phoneNumber = message.from.replace('@c.us', '');
+
+        // Process through reply handler if available
+        if (this.replyHandler) {
+          await this.replyHandler.handleIncomingMessage(userId, phoneNumber, message);
+        }
+      } catch (error) {
+        this.logger.error(`Error processing incoming message: ${error}`);
+      }
     });
   }
 

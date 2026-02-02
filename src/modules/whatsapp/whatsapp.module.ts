@@ -13,7 +13,7 @@ import { UploadsModule } from '../uploads/uploads.module';
   ],
   controllers: [WhatsAppController],
   providers: [WhatsAppService, WhatsAppGateway],
-  exports: [WhatsAppService],
+  exports: [WhatsAppService, WhatsAppGateway],
 })
 export class WhatsAppModule {}
 

@@ -100,4 +100,19 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   sendMessageStatus(userId: string, messageId: string, status: string) {
     this.server.to(`user:${userId}`).emit('message-status', { messageId, status });
   }
+
+  // Send reply notification to user
+  sendReplyNotification(userId: string, reply: {
+    id: string;
+    blastId: string;
+    blastMessageId?: string;
+    phoneNumber: string;
+    messageContent: string;
+    mediaUrl?: string;
+    mediaType?: string;
+    receivedAt: Date;
+  }) {
+    this.server.to(`user:${userId}`).emit('blast-reply', reply);
+    this.logger.log(`Reply notification sent to user ${userId} from ${reply.phoneNumber}`);
+  }
 }

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -21,7 +22,16 @@ import {
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { BlastsService } from './blasts.service';
-import { CreateBlastDto, BlastResponseDto, BlastDetailDto, BlastQueryDto } from './dto';
+import { BlastRepliesService } from './services/blast-replies.service';
+import {
+  CreateBlastDto,
+  BlastResponseDto,
+  BlastDetailDto,
+  BlastQueryDto,
+  ReplyQueryDto,
+  BlastReplyDto,
+  ReplyStatsDto,
+} from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -38,6 +48,7 @@ import { TemplatesService } from '../templates/templates.service';
 export class BlastsController {
   constructor(
     private readonly blastsService: BlastsService,
+    private readonly blastRepliesService: BlastRepliesService,
     private readonly uploadsService: UploadsService,
     private readonly contactsService: ContactsService,
     private readonly templatesService: TemplatesService,
@@ -271,6 +282,74 @@ export class BlastsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.blastsService.findOneWithMessages(userId, id);
+  }
+
+  @Get('replies/unread')
+  @ApiOperation({ summary: 'Get all unread replies across all blasts' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of unread replies',
+  })
+  findUnreadReplies(
+    @CurrentUser('id') userId: string,
+    @Query() query: ReplyQueryDto,
+  ) {
+    return this.blastRepliesService.findUnread(userId, query);
+  }
+
+  @Get('replies/stats')
+  @ApiOperation({ summary: 'Get reply statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Reply statistics',
+    type: ReplyStatsDto,
+  })
+  getReplyStats(@CurrentUser('id') userId: string) {
+    return this.blastRepliesService.getStats(userId);
+  }
+
+  @Get(':id/replies')
+  @ApiOperation({ summary: 'Get replies for a specific blast' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of replies',
+  })
+  findBlastReplies(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) blastId: string,
+    @Query() query: ReplyQueryDto,
+  ) {
+    return this.blastRepliesService.findByBlast(userId, blastId, query);
+  }
+
+  @Get(':id/replies/:replyId')
+  @ApiOperation({ summary: 'Get a specific reply' })
+  @ApiResponse({
+    status: 200,
+    description: 'Reply details',
+    type: BlastReplyDto,
+  })
+  findOneReply(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) blastId: string,
+    @Param('replyId', ParseUUIDPipe) replyId: string,
+  ) {
+    return this.blastRepliesService.findOne(userId, blastId, replyId);
+  }
+
+  @Patch(':id/replies/:replyId/read')
+  @ApiOperation({ summary: 'Mark a reply as read' })
+  @ApiResponse({
+    status: 200,
+    description: 'Reply marked as read',
+    type: BlastReplyDto,
+  })
+  markReplyAsRead(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) blastId: string,
+    @Param('replyId', ParseUUIDPipe) replyId: string,
+  ) {
+    return this.blastRepliesService.markAsRead(userId, blastId, replyId);
   }
 
   @Get('admin/all')

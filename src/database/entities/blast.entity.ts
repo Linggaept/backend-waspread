@@ -76,6 +76,9 @@ export class Blast {
   @Column({ nullable: true })
   imageUrl?: string;
 
+  @Column({ default: 0 })
+  replyCount: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
