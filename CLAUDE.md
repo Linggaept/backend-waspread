@@ -44,18 +44,24 @@ npm run docker:logs             # Follow logs
 - `packages/` - Subscription package definitions
 - `payments/` - Midtrans payment gateway integration
 - `subscriptions/` - User subscription lifecycle, quota tracking
-- `whatsapp/` - WhatsApp Web session management via whatsapp-web.js
-- `blasts/` - Bulk message campaigns with BullMQ queue processing
+- `whatsapp/` - WhatsApp Web session management via whatsapp-web.js, WebSocket gateway for real-time events
+- `blasts/` - Bulk message campaigns with BullMQ queue processing (`processors/blast.processor.ts`)
 - `contacts/` - Contact list management for blast recipients
 - `templates/` - Message template management for reusable blast content
-- `uploads/` - File uploads with Cloudflare R2 storage and image compression
+- `uploads/` - File uploads with Cloudflare R2 storage and image compression (Sharp)
 - `reports/` - Dashboard stats and CSV exports
 - `audit/` - Audit logging system for tracking user actions and system events
 - `mail/` - Email service using Nodemailer with Handlebars templates
 - `health/` - System health endpoints
 
+**Infrastructure** (`src/`):
+- `queue/queue.module.ts` - BullMQ/Redis connection setup
+- `config/` - Environment configuration loaders and validation
+
 **Core Entities** (`src/database/entities/`):
-- User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, Contact, Template, BlastReply, PasswordReset, AuditLog
+- User, Package, Payment, Subscription, WhatsAppSession, Contact, Template, PasswordReset, AuditLog
+- `blast.entity.ts` - Contains both Blast and BlastMessage entities, plus status enums (BlastStatus, MessageStatus, MessageErrorType)
+- BlastReply - Stores incoming replies to blast messages
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -66,17 +72,19 @@ npm run docker:logs             # Follow logs
 
 **Message Processing Pipeline**:
 1. User creates blast (validates WhatsApp session + subscription quota)
-2. System creates BlastMessage records per phone number
-3. Jobs queued to BullMQ with configurable delays
+2. System creates BlastMessage records per phone number (uses TypeORM transaction for atomicity)
+3. `startBlast` deducts quota, queues jobs to BullMQ with configurable delays
 4. `BlastProcessor` handles async sending with retry (3 attempts, exponential backoff)
-5. Real-time status updates via WebSocket gateway
+5. Invalid numbers (not on WhatsApp) are detected and skipped without retry
+6. Real-time progress updates via WebSocket every 5 messages
 
 **WhatsApp Session**:
 - One session per user enforced
 - Uses whatsapp-web.js (Puppeteer-based, unofficial API)
 - Session persistence in `.wwebjs_auth/` directory
-- WebSocket gateway for QR code real-time updates
+- WebSocket gateway (`whatsapp.gateway.ts`) emits: `qr`, `ready`, `disconnected`, `blast-started`, `blast-progress`, `blast-completed`
 - Media caching for optimized image sending
+- Blasting status flag prevents auto-disconnect during active blasts
 
 **Image Storage Pipeline**:
 - Images uploaded via `UploadsModule`, compressed with Sharp
@@ -88,6 +96,13 @@ npm run docker:logs             # Follow logs
 - Auto-deduction on blast start
 - Validation before every blast operation
 
+**API Response Format**:
+All responses wrapped via `TransformInterceptor` using `ApiResponse<T>`:
+```json
+{ "success": true, "message": "Success", "data": {...}, "timestamp": "..." }
+```
+Errors use `GlobalExceptionFilter` with standardized codes (BAD_REQUEST, UNAUTHORIZED, etc.)
+
 ## Configuration
 
 Environment variables configured via `.env` (see `.env.example`):
@@ -97,6 +112,8 @@ Environment variables configured via `.env` (see `.env.example`):
 - `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication
 - `MIDTRANS_*` - Payment gateway
 - `R2_*` - Cloudflare R2 storage (optional, falls back to local)
+
+**Rate Limiting**: Global throttle via `@nestjs/throttler` (100 requests/minute default)
 
 ## Development Guidelines
 

@@ -354,10 +354,24 @@ export class BlastsService {
   }
 
   private formatPhoneNumber(phone: string): string {
+    // Remove all non-digit characters (handles +, -, (), spaces, dots, quotes, etc.)
     let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('0')) {
+
+    // Handle various prefix formats:
+    // 0062... (international with 00) -> 62...
+    if (cleaned.startsWith('0062')) {
+      cleaned = cleaned.substring(2);
+    }
+    // 620... (e.g., from "62-0821" or "+62 0821") -> remove extra 0 after 62
+    else if (cleaned.startsWith('620')) {
+      cleaned = '62' + cleaned.substring(3);
+    }
+    // 0... (local format) -> 62...
+    else if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);
     }
+    // Already starts with 62 (without extra 0) -> keep as is
+
     return cleaned;
   }
 }

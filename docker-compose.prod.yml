@@ -26,6 +26,7 @@ services:
     volumes:
       - .wwebjs_auth:/usr/src/app/.wwebjs_auth
       - .wwebjs_cache:/usr/src/app/.wwebjs_cache
+      - uploads_data:/usr/src/app/uploads
     depends_on:
       - postgres
       - redis
@@ -62,5 +63,6 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:
   .wwebjs_auth:
   .wwebjs_cache:

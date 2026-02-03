@@ -233,77 +233,143 @@ export class ContactsController {
     if (!sheet) return [];
 
     const contacts: CreateContactDto[] = [];
-    
-    // Get headers
+    const seenPhones = new Set<string>(); // Prevent duplicates within file
+
+    // Get headers for name/email/notes detection
     const firstRowValues = sheet.getRow(1).values;
     let headers: string[] = [];
-    
+
     if (Array.isArray(firstRowValues)) {
-        // exceljs values are 1-based, index 0 is undefined usually
-        headers = (firstRowValues as any[]).slice(1).map(h => String(h || '').toLowerCase().trim());
+      headers = (firstRowValues as any[]).slice(1).map(h => String(h || '').toLowerCase().trim());
     } else if (typeof firstRowValues === 'object') {
-        headers = Object.values(firstRowValues).map(h => String(h || '').toLowerCase().trim());
+      headers = Object.values(firstRowValues).map(h => String(h || '').toLowerCase().trim());
     }
 
-    if (headers.length === 0) return [];
-
-    const phoneColIdx = this.findColumn(headers, [
-      'phone',
-      'phoneNumber',
-      'phone_number',
-      'nomor',
-      'no',
-      'hp',
-      'whatsapp',
-      'wa',
-      'mobile',
-      'telepon',
-      'handphone',
-    ]);
+    // Detect columns for optional fields
     const nameColIdx = this.findColumn(headers, ['name', 'nama', 'fullname', 'full_name']);
     const emailColIdx = this.findColumn(headers, ['email', 'e-mail', 'mail']);
     const notesColIdx = this.findColumn(headers, ['notes', 'note', 'catatan', 'keterangan']);
 
+    // Check if first row looks like a header (contains known header words)
+    const hasHeader = this.rowLooksLikeHeader(headers);
+
     sheet.eachRow((row, rowNumber) => {
-       if (rowNumber === 1) return; // Skip header
+      // Skip header row if detected
+      if (rowNumber === 1 && hasHeader) return;
 
-       // ExcelJS rows are 1-based.
-       // headers array is 0-based corresponding to Excel column 1, 2, 3...
-       // so headers[0] is col 1.
-       // logic: phoneColIdx (0-based) -> getCell(phoneColIdx + 1)
-       
-       const phone = phoneColIdx !== null ? String(row.getCell(phoneColIdx + 1).value || '').trim() : '';
-       // Some value might be object (rich text) or result. taking .value usually works for simple text.
+      // Scan ALL cells in this row to find phone numbers
+      const phoneNumbers: string[] = [];
+      let nameVal: string | undefined;
+      let emailVal: string | undefined;
+      let notesVal: string | undefined;
 
-       if (!phone || phone.length < 10) return;
+      row.eachCell((cell, colNumber) => {
+        const cellValue = String(cell.value || '').trim();
+        if (!cellValue) return;
 
-       const contact: CreateContactDto = {
-        phoneNumber: phone,
-       };
+        // Try to extract phone number from this cell
+        const extractedPhone = this.extractPhoneNumber(cellValue);
+        if (extractedPhone) {
+          phoneNumbers.push(extractedPhone);
+        }
 
-      if (nameColIdx !== null) {
-        const val = row.getCell(nameColIdx + 1).value;
-        if (val) contact.name = String(val).trim();
+        // Also check for name/email/notes by column index (if headers detected)
+        const colIdx = colNumber - 1; // Convert to 0-based
+        if (nameColIdx !== null && colIdx === nameColIdx && !this.looksLikePhone(cellValue)) {
+          nameVal = cellValue;
+        }
+        if (emailColIdx !== null && colIdx === emailColIdx) {
+          emailVal = cellValue;
+        }
+        if (notesColIdx !== null && colIdx === notesColIdx && !this.looksLikePhone(cellValue)) {
+          notesVal = cellValue;
+        }
+      });
+
+      // Use the first valid phone number found in the row
+      if (phoneNumbers.length > 0) {
+        const phone = phoneNumbers[0];
+
+        // Skip if already seen in this file
+        if (seenPhones.has(phone)) return;
+        seenPhones.add(phone);
+
+        const contact: CreateContactDto = {
+          phoneNumber: phone,
+        };
+
+        if (nameVal) contact.name = nameVal;
+        if (emailVal) contact.email = emailVal;
+        if (notesVal) contact.notes = notesVal;
+        if (tags && tags.length > 0) contact.tags = tags;
+
+        contacts.push(contact);
       }
-
-      if (emailColIdx !== null) {
-         const val = row.getCell(emailColIdx + 1).value;
-         if (val) contact.email = String(val).trim();
-      }
-
-      if (notesColIdx !== null) {
-        const val = row.getCell(notesColIdx + 1).value;
-        if (val) contact.notes = String(val).trim();
-      }
-
-      if (tags && tags.length > 0) {
-        contact.tags = tags;
-      }
-
-      contacts.push(contact);
     });
 
     return contacts;
+  }
+
+  /**
+   * Extract phone number from a cell value using pattern matching.
+   * Handles formats like: 0821-3789-02, +62 821 3789 02, (62)821378902, etc.
+   */
+  private extractPhoneNumber(value: string): string | null {
+    // Remove all non-digit characters first
+    const digitsOnly = value.replace(/\D/g, '');
+
+    // Must have between 10-25 digits to be a valid phone
+    if (digitsOnly.length < 10 || digitsOnly.length > 25) {
+      return null;
+    }
+
+    // Format the phone number (normalize to 62xxx format)
+    return this.formatPhoneNumber(digitsOnly);
+  }
+
+  /**
+   * Format phone number to standard 62xxx format
+   */
+  private formatPhoneNumber(phone: string): string {
+    let cleaned = phone.replace(/\D/g, '');
+
+    // 0062... -> 62...
+    if (cleaned.startsWith('0062')) {
+      cleaned = cleaned.substring(2);
+    }
+    // 620... (e.g., from "62-0821") -> remove extra 0 after 62
+    else if (cleaned.startsWith('620')) {
+      cleaned = '62' + cleaned.substring(3);
+    }
+    // 0... -> 62...
+    else if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+
+    return cleaned;
+  }
+
+  /**
+   * Check if a value looks like a phone number (has enough digits)
+   */
+  private looksLikePhone(value: string): boolean {
+    const digitsOnly = value.replace(/\D/g, '');
+    return digitsOnly.length >= 10 && digitsOnly.length <= 25;
+  }
+
+  /**
+   * Check if the row looks like a header row
+   */
+  private rowLooksLikeHeader(headers: string[]): boolean {
+    const headerKeywords = [
+      'phone', 'phoneNumber', 'phone_number', 'nomor', 'no', 'hp',
+      'whatsapp', 'wa', 'mobile', 'telepon', 'handphone',
+      'name', 'nama', 'fullname', 'full_name',
+      'email', 'e-mail', 'mail',
+      'notes', 'note', 'catatan', 'keterangan',
+    ];
+
+    return headers.some(h => headerKeywords.includes(h.toLowerCase()));
   }
 
   private findColumn(headers: string[], possibleNames: string[]): number | null {
@@ -311,8 +377,6 @@ export class ContactsController {
       const index = headers.findIndex((h) => h === name.toLowerCase());
       if (index !== -1) return index;
     }
-    // If no match, assume first column for phone
-    if (possibleNames.includes('phone')) return 0;
     return null;
   }
 }

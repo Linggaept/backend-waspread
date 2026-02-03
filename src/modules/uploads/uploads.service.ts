@@ -57,72 +57,71 @@ export class UploadsService {
 
     try {
       const phoneNumbers: string[] = [];
+      const seenPhones = new Set<string>(); // Prevent duplicates
       let invalidCount = 0;
-      
+
       const workbook = new ExcelJS.Workbook();
       if (ext === '.csv') {
         await workbook.csv.readFile(filePath);
       } else {
         await workbook.xlsx.readFile(filePath);
       }
-      
+
       const sheet = workbook.getWorksheet(1);
       if (!sheet) {
-         throw new BadRequestException('File is empty or corrupted');
+        throw new BadRequestException('File is empty or corrupted');
       }
 
       // Check if first row looks like a header
       const firstRow = sheet.getRow(1);
-      
-      // Handle sparse array (ExcelJS values are 1-based, index 0 is invalid/undefined)
-      // .values return [ <empty>, val1, val2 ]
-      // We want to check meaningful values
       let headerValues: string[] = [];
-      
+
       if (Array.isArray(firstRow.values)) {
-         headerValues = (firstRow.values as any[]).slice(1).map(v => String(v));
+        headerValues = (firstRow.values as any[]).slice(1).map(v => String(v || '').toLowerCase().trim());
       } else if (typeof firstRow.values === 'object') {
-         // Some versions might behave differently or sparse object
-         headerValues = Object.values(firstRow.values).map(v => String(v));
+        headerValues = Object.values(firstRow.values).map(v => String(v || '').toLowerCase().trim());
       }
 
-      const startIndex = this.isHeaderRow(headerValues) ? 2 : 1;
-      
+      const hasHeader = this.isHeaderRow(headerValues);
+
       sheet.eachRow((row, rowNumber) => {
-        if (rowNumber < startIndex) return;
-        
-        // Column 1
-        const cellValue = row.getCell(1).value;
-        if (cellValue) {
-           const rawPhone = String(cellValue).trim();
-            if (rawPhone) {
-              const formatted = this.formatPhoneNumber(rawPhone);
-              if (this.isValidPhoneNumber(formatted)) {
-                phoneNumbers.push(formatted);
-              } else {
-                invalidCount++;
-                this.logger.debug(`Invalid phone number skipped: ${rawPhone}`);
-              }
+        // Skip header row if detected
+        if (rowNumber === 1 && hasHeader) return;
+
+        // Scan ALL cells in this row to find phone numbers
+        row.eachCell((cell) => {
+          const cellValue = String(cell.value || '').trim();
+          if (!cellValue) return;
+
+          // Try to extract phone number from this cell
+          const extractedPhone = this.extractPhoneNumber(cellValue);
+          if (extractedPhone) {
+            // Skip if already seen (duplicate)
+            if (!seenPhones.has(extractedPhone)) {
+              seenPhones.add(extractedPhone);
+              phoneNumbers.push(extractedPhone);
             }
-        }
+          } else if (this.looksLikePhoneAttempt(cellValue)) {
+            // Only count as invalid if it looks like a phone attempt but failed validation
+            invalidCount++;
+            this.logger.debug(`Invalid phone number skipped: ${cellValue}`);
+          }
+        });
       });
 
       if (phoneNumbers.length === 0) {
         throw new BadRequestException(
-          'No valid phone numbers found in file. Ensure phone numbers are in the first column.',
+          'No valid phone numbers found in file.',
         );
       }
 
-      // Remove duplicates
-      const uniquePhones = [...new Set(phoneNumbers)];
-
       this.logger.log(
-        `Parsed ${uniquePhones.length} unique phone numbers from file (${invalidCount} invalid entries skipped)`,
+        `Parsed ${phoneNumbers.length} unique phone numbers from file (${invalidCount} invalid entries skipped)`,
       );
 
       return {
-        phoneNumbers: uniquePhones,
-        totalParsed: uniquePhones.length,
+        phoneNumbers,
+        totalParsed: phoneNumbers.length,
         invalidCount,
       };
     } catch (error) {
@@ -134,6 +133,32 @@ export class UploadsService {
         'Failed to parse phone numbers file. Ensure the file is a valid CSV or Excel file.',
       );
     }
+  }
+
+  /**
+   * Extract phone number from a cell value using pattern matching.
+   * Handles formats like: 0821-3789-02, +62 821 3789 02, (62)821378902, etc.
+   */
+  private extractPhoneNumber(value: string): string | null {
+    // Remove all non-digit characters first
+    const digitsOnly = value.replace(/\D/g, '');
+
+    // Must have between 10-25 digits to be a valid phone
+    if (digitsOnly.length < 10 || digitsOnly.length > 25) {
+      return null;
+    }
+
+    // Format the phone number (normalize to 62xxx format)
+    return this.formatPhoneNumber(digitsOnly);
+  }
+
+  /**
+   * Check if a value looks like an attempted phone number (has some digits but invalid)
+   */
+  private looksLikePhoneAttempt(value: string): boolean {
+    const digitsOnly = value.replace(/\D/g, '');
+    // Has 5-9 digits - looks like a phone attempt but too short
+    return digitsOnly.length >= 5 && digitsOnly.length < 10;
   }
 
   private isHeaderRow(row: string[]): boolean {
@@ -161,34 +186,25 @@ export class UploadsService {
   }
 
   private formatPhoneNumber(phone: string): string {
-    // Remove all non-digit characters
+    // Remove all non-digit characters (handles +, -, (), spaces, dots, quotes, etc.)
     let cleaned = phone.replace(/\D/g, '');
 
-    // Convert leading 0 to 62 (Indonesia country code)
-    if (cleaned.startsWith('0')) {
+    // Handle various prefix formats:
+    // 0062... (international with 00) -> 62...
+    if (cleaned.startsWith('0062')) {
+      cleaned = cleaned.substring(2);
+    }
+    // 620... (e.g., from "62-0821" or "+62 0821") -> remove extra 0 after 62
+    else if (cleaned.startsWith('620')) {
+      cleaned = '62' + cleaned.substring(3);
+    }
+    // 0... (local format) -> 62...
+    else if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);
     }
-
-    // Add 62 if number doesn't start with country code
-    if (!cleaned.startsWith('62') && cleaned.length >= 9 && cleaned.length <= 13) {
-      cleaned = '62' + cleaned;
-    }
+    // Already starts with 62 (without extra 0) -> keep as is
 
     return cleaned;
-  }
-
-  private isValidPhoneNumber(phone: string): boolean {
-    // Must be 10-15 digits
-    if (phone.length < 10 || phone.length > 15) {
-      return false;
-    }
-
-    // Must only contain digits
-    if (!/^\d+$/.test(phone)) {
-      return false;
-    }
-
-    return true;
   }
 
   validateImageFile(file: Express.Multer.File): void {
