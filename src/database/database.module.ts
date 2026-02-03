@@ -27,7 +27,8 @@ import { AuditLog } from './entities/audit-log.entity';
         database: configService.get<string>('database.database'),
         entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, BlastReply, Contact, Template, PasswordReset, AuditLog],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
-        synchronize: configService.get<string>('app.nodeEnv') === 'development',
+        // WARNING: Set to false after initial deployment!
+        synchronize: true,
         logging: configService.get<string>('app.nodeEnv') === 'development',
       }),
     }),
