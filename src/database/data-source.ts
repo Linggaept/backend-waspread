@@ -10,8 +10,8 @@ export const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USERNAME || 'waspread',
   password: process.env.DB_PASSWORD || 'waspread_secret',
   database: process.env.DB_DATABASE || 'waspread',
-  entities: ['dist/**/*.entity{.ts,.js}'],
-  migrations: ['dist/database/migrations/*{.ts,.js}'],
+  entities: ['dist/src/**/*.entity{.ts,.js}'],
+  migrations: ['dist/src/database/migrations/*{.ts,.js}'],
   synchronize: false,
 };
 
