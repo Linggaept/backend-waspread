@@ -63,18 +63,18 @@ cp .env.example .env
 nano .env
 ```
 
-### Isi konfigurasi production:
+### Isi konfigurasi:
 
 ```env
-# Database (GANTI PASSWORD!)
-DB_HOST=postgres
-DB_PORT=5432
+# Database
+DB_HOST=localhost
+DB_PORT=5433
 DB_USERNAME=waspread
-DB_PASSWORD=GANTI_PASSWORD_YANG_KUAT_123!
+DB_PASSWORD=waspread_secret
 DB_DATABASE=waspread
 
 # Redis
-REDIS_HOST=redis
+REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # JWT (GANTI SECRET!)
@@ -85,44 +85,55 @@ JWT_EXPIRES_IN=604800
 APP_PORT=2004
 NODE_ENV=production
 
-# Midtrans
-MIDTRANS_SERVER_KEY=your-server-key
-MIDTRANS_CLIENT_KEY=your-client-key
-MIDTRANS_IS_PRODUCTION=true
+# Midtrans (Sandbox untuk testing)
+MIDTRANS_SERVER_KEY=SB-Mid-server-xxx
+MIDTRANS_CLIENT_KEY=SB-Mid-client-xxx
+MIDTRANS_IS_PRODUCTION=false
 
-# Cloudflare R2 (Optional)
+# Midtrans (Production - uncomment jika sudah live)
+# MIDTRANS_SERVER_KEY=Mid-server-xxx
+# MIDTRANS_CLIENT_KEY=Mid-client-xxx
+# MIDTRANS_IS_PRODUCTION=true
+
+# Cloudflare R2 (Optional - untuk storage gambar)
 R2_ACCOUNT_ID=your-account-id
 R2_ACCESS_KEY_ID=your-access-key
 R2_SECRET_ACCESS_KEY=your-secret-key
 R2_BUCKET_NAME=your-bucket
-R2_PUBLIC_URL=https://your-bucket.r2.dev
+R2_PUBLIC_URL=https://your-domain.com
 
-# Mail (Optional)
+# WhatsApp Session
+MAX_WA_SESSIONS=1000
+WA_IDLE_TIMEOUT_MINUTES=15
+
+# Mail (SMTP)
 MAIL_HOST=smtp.gmail.com
 MAIL_PORT=587
 MAIL_USER=your-email@gmail.com
 MAIL_PASS=your-app-password
-MAIL_FROM=noreply@yourdomain.com
+MAIL_FROM="App Name <noreply@yourdomain.com>"
 ```
 
-> **PENTING**: Ganti semua password dan secret dengan nilai yang aman!
+> **PENTING**: Ganti `JWT_SECRET` dengan random string yang aman!
 
 ---
 
 ## 4. Deploy dengan Docker
 
-### Production Mode
+### Build dan Jalankan
 
 ```bash
-# Build dan jalankan
+# Build dan jalankan semua services (PRODUCTION MODE)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# Cek status
-docker compose -f docker-compose.prod.yml ps
+# Cek status containers
+docker ps
 
-# Lihat logs
-docker compose -f docker-compose.prod.yml logs -f backend
+# Lihat logs (tekan Ctrl+C untuk keluar)
+docker logs waspread-backend -f
 ```
+
+> **Note**: Gunakan `docker-compose.prod.yml` untuk production. File `docker-compose.yml` untuk development dengan hot-reload.
 
 ### Verifikasi
 
@@ -130,8 +141,16 @@ docker compose -f docker-compose.prod.yml logs -f backend
 # Cek health endpoint
 curl http://localhost:2004/api/health
 
-# Expected response:
-# {"status":"ok","info":{"database":{"status":"up"},"redis":{"status":"up"}}}
+# Buka Swagger docs di browser
+# http://YOUR_IP:2004/docs
+```
+
+**Expected output:**
+```
+[Bootstrap] Application is running on: http://localhost:2004/api
+[Bootstrap] Environment: production
+[Bootstrap] API Docs: http://localhost:2004/docs
+[Bootstrap] Health check: http://localhost:2004/api/health
 ```
 
 ---
@@ -208,8 +227,6 @@ Ikuti instruksi dan pilih redirect HTTP to HTTPS.
 ```bash
 # Test renewal
 sudo certbot renew --dry-run
-
-# Crontab akan otomatis dibuat oleh certbot
 ```
 
 ---
@@ -240,13 +257,13 @@ sudo ufw status
 
 ```bash
 # Lihat logs backend
-docker compose -f docker-compose.prod.yml logs -f backend
+docker logs waspread-backend -f
+
+# Lihat logs dengan tail
+docker logs waspread-backend --tail 100
 
 # Lihat logs database
-docker compose -f docker-compose.prod.yml logs -f postgres
-
-# Lihat semua logs
-docker compose -f docker-compose.prod.yml logs -f
+docker logs waspread-postgres -f
 ```
 
 ### Restart Services
@@ -266,11 +283,8 @@ docker compose -f docker-compose.prod.yml restart backend
 git pull origin main
 
 # Rebuild dan restart
+docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml up -d --build
-
-# Atau tanpa downtime (rolling update)
-docker compose -f docker-compose.prod.yml build backend
-docker compose -f docker-compose.prod.yml up -d --no-deps backend
 ```
 
 ### Database Backup
@@ -310,15 +324,15 @@ df -h
 free -m
 ```
 
-### Health Check Script
+### Health Check Script (Optional)
 
 Buat file `/home/$USER/health-check.sh`:
 
 ```bash
 #!/bin/bash
-HEALTH=$(curl -s http://localhost:2004/api/health | jq -r '.status')
+HEALTH=$(curl -s http://localhost:2004/api/health | grep -o '"status":"ok"')
 
-if [ "$HEALTH" != "ok" ]; then
+if [ -z "$HEALTH" ]; then
     echo "$(date): Health check failed, restarting..."
     cd /home/$USER/waspread-backend
     docker compose -f docker-compose.prod.yml restart backend
@@ -339,24 +353,26 @@ crontab -e
 
 ## 10. Troubleshooting
 
-### Container tidak start
+### Container restart loop
 
 ```bash
-# Cek logs
-docker compose -f docker-compose.prod.yml logs backend
+# Cek logs untuk lihat error
+docker logs waspread-backend --tail 100
 
-# Cek apakah port sudah dipakai
-sudo lsof -i :2004
+# Kemungkinan:
+# - Environment variable kurang
+# - Database belum ready
+# - Port conflict
 ```
 
 ### Database connection refused
 
 ```bash
 # Pastikan postgres sudah running
-docker compose -f docker-compose.prod.yml ps postgres
+docker ps | grep postgres
 
 # Cek logs postgres
-docker compose -f docker-compose.prod.yml logs postgres
+docker logs waspread-postgres
 ```
 
 ### WhatsApp session error
@@ -366,6 +382,18 @@ docker compose -f docker-compose.prod.yml logs postgres
 docker compose -f docker-compose.prod.yml down
 sudo rm -rf .wwebjs_auth .wwebjs_cache
 docker compose -f docker-compose.prod.yml up -d
+```
+
+### Port sudah dipakai
+
+```bash
+# Cek port
+sudo lsof -i :2004
+sudo lsof -i :5433
+sudo lsof -i :6379
+
+# Kill process jika perlu
+sudo kill -9 <PID>
 ```
 
 ### Out of memory
@@ -389,8 +417,8 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 |----------|-----------|
 | `GET /api/health` | Health check |
 | `GET /docs` | Swagger API Documentation |
+| `POST /api/auth/register` | Register user baru |
 | `POST /api/auth/login` | Login |
-| `POST /api/auth/register` | Register |
 | `WS /` | WebSocket untuk QR code |
 
 ---
@@ -398,14 +426,14 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ## Quick Commands Reference
 
 ```bash
-# Start
+# Start (Production)
 docker compose -f docker-compose.prod.yml up -d
 
 # Stop
 docker compose -f docker-compose.prod.yml down
 
 # Logs
-docker compose -f docker-compose.prod.yml logs -f
+docker logs waspread-backend -f
 
 # Restart
 docker compose -f docker-compose.prod.yml restart
@@ -414,8 +442,23 @@ docker compose -f docker-compose.prod.yml restart
 docker compose -f docker-compose.prod.yml up -d --build
 
 # Status
-docker compose -f docker-compose.prod.yml ps
+docker ps
+
+# Masuk ke container
+docker exec -it waspread-backend sh
 
 # Backup DB
 docker exec waspread-postgres pg_dump -U waspread waspread > backup.sql
 ```
+
+> **Development Mode**: Ganti `-f docker-compose.prod.yml` dengan `-f docker-compose.yml` atau tanpa flag untuk development dengan hot-reload.
+
+---
+
+## Default Credentials
+
+Setelah deploy, sistem akan auto-create package "Free Trial".
+
+Register user baru via:
+- `POST /api/auth/register`
+- Atau via Swagger UI di `/docs`
