@@ -59,19 +59,19 @@ export class BlastsController {
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'phonesFile', maxCount: 1 },
-      { name: 'imageFile', maxCount: 1 },
+      { name: 'mediaFile', maxCount: 1 },
     ]),
   )
   @ApiOperation({
     summary: 'Create blast campaign',
     description:
-      'Create a new blast campaign. Phone numbers can be provided via phoneNumbers array or phonesFile (CSV/Excel). Optionally include an image attachment.',
+      'Create a new blast campaign. Recipients can be selected via: manual (input numbers), from_contacts (select from saved contacts), or file (upload CSV/Excel).',
   })
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['name'],
+      required: ['name', 'recipientSource'],
       properties: {
         name: {
           type: 'string',
@@ -86,24 +86,30 @@ export class BlastsController {
         templateId: {
           type: 'string',
           example: 'template-uuid',
-          description: 'Template ID to use. If provided, message and image will be taken from template.',
+          description: 'Template ID to use. If provided, message and media will be taken from template.',
         },
         variableValues: {
           type: 'object',
           example: { name: 'John', product: 'Laptop' },
           description: 'Variable values to replace in template message (JSON string for multipart).',
         },
+        recipientSource: {
+          type: 'string',
+          enum: ['manual', 'from_contacts', 'file'],
+          example: 'manual',
+          description: 'How to select recipients: manual (input numbers min 2), from_contacts (select from saved contacts), file (upload CSV/Excel).',
+        },
         phoneNumbers: {
           type: 'array',
           items: { type: 'string' },
           example: ['628123456789', '628987654331'],
-          description:
-            'Target phone numbers. Required if phonesFile/contactTag is not provided.',
+          description: 'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
         },
-        contactTag: {
-          type: 'string',
-          example: 'customer',
-          description: 'Contact tag to select recipients from saved contacts.',
+        contactIds: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['contact-uuid-1', 'contact-uuid-2'],
+          description: 'Selected contact IDs from checkbox (when recipientSource = from_contacts).',
         },
         delayMs: {
           type: 'number',
@@ -113,14 +119,12 @@ export class BlastsController {
         phonesFile: {
           type: 'string',
           format: 'binary',
-          description:
-            'CSV/Excel file with phone numbers in first column.',
+          description: 'CSV/Excel file with phone numbers (when recipientSource = file).',
         },
-        imageFile: {
+        mediaFile: {
           type: 'string',
           format: 'binary',
-          description:
-            'Optional image to attach (overrides template image if provided).',
+          description: 'Optional media attachment (image, video, audio, or document).',
         },
       },
     },
@@ -140,18 +144,19 @@ export class BlastsController {
     @UploadedFiles()
     files?: {
       phonesFile?: Express.Multer.File[];
-      imageFile?: Express.Multer.File[];
+      mediaFile?: Express.Multer.File[];
     },
   ) {
     const phonesFile = files?.phonesFile?.[0];
-    const imageFile = files?.imageFile?.[0];
+    const mediaFile = files?.mediaFile?.[0];
 
-    let phoneNumbers = createBlastDto.phoneNumbers;
-    let imageUrl: string | undefined;
+    let phoneNumbers: string[] = [];
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
     let message = createBlastDto.message;
 
     try {
-      // If templateId is provided, get message and image from template
+      // If templateId is provided, get message and media from template
       if (createBlastDto.templateId) {
         const templateData = await this.templatesService.getTemplateForBlast(
           userId,
@@ -159,9 +164,10 @@ export class BlastsController {
           createBlastDto.variableValues,
         );
         message = templateData.message;
-        // Only use template image if no imageFile is uploaded
-        if (!imageFile && templateData.imageUrl) {
-          imageUrl = templateData.imageUrl;
+        // Only use template media if no mediaFile is uploaded
+        if (!mediaFile && templateData.mediaUrl) {
+          mediaUrl = templateData.mediaUrl;
+          mediaType = templateData.mediaType;
         }
       }
 
@@ -172,35 +178,71 @@ export class BlastsController {
         );
       }
 
-      // Process phone numbers file if provided
-      if (phonesFile) {
-        this.uploadsService.validatePhoneFile(phonesFile);
-        const parsed = await this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
-        phoneNumbers = parsed.phoneNumbers;
-        // Cleanup temp file after parsing
-        this.uploadsService.cleanupTempFile(phonesFile.path);
-      } else if (createBlastDto.contactTag) {
-        // Fetch phone numbers from contacts by tag
-        phoneNumbers = await this.contactsService.getPhoneNumbersByTag(
-          userId,
-          createBlastDto.contactTag,
-        );
+      // Determine recipient source (default to 'manual' for backwards compatibility)
+      const recipientSource = createBlastDto.recipientSource || 'manual';
+
+      // Get phone numbers based on recipient source
+      switch (recipientSource) {
+        case 'manual':
+          // Use phoneNumbers from DTO (minimum 2 numbers)
+          phoneNumbers = createBlastDto.phoneNumbers || [];
+          if (phoneNumbers.length < 2) {
+            throw new BadRequestException(
+              'Minimum 2 phone numbers required for manual input.',
+            );
+          }
+          break;
+
+        case 'from_contacts':
+          // Get phone numbers from selected contact IDs
+          if (!createBlastDto.contactIds || createBlastDto.contactIds.length === 0) {
+            throw new BadRequestException(
+              'contactIds is required when recipientSource is "from_contacts". Please select at least one contact.',
+            );
+          }
+          phoneNumbers = await this.contactsService.getPhoneNumbersByIds(
+            userId,
+            createBlastDto.contactIds,
+          );
+          if (phoneNumbers.length === 0) {
+            throw new BadRequestException(
+              'No valid contacts found for the selected IDs.',
+            );
+          }
+          break;
+
+        case 'file':
+          // Parse phone numbers from uploaded file
+          if (!phonesFile) {
+            throw new BadRequestException(
+              'phonesFile is required when recipientSource is "file".',
+            );
+          }
+          this.uploadsService.validatePhoneFile(phonesFile);
+          const parsed = await this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
+          phoneNumbers = parsed.phoneNumbers;
+          this.uploadsService.cleanupTempFile(phonesFile.path);
+          if (phoneNumbers.length === 0) {
+            throw new BadRequestException(
+              'No valid phone numbers found in the uploaded file.',
+            );
+          }
+          break;
+
+        default:
+          throw new BadRequestException(
+            `Invalid recipientSource: ${recipientSource}. Use "manual", "from_contacts", or "file".`,
+          );
       }
 
-      // Validate that we have phone numbers from either source
-      if (!phoneNumbers || phoneNumbers.length === 0) {
-        throw new BadRequestException(
-          'Phone numbers are required. Provide phoneNumbers array, upload a phonesFile, or specify a contactTag.',
-        );
-      }
-
-      // Process image file if provided (overrides template image)
-      if (imageFile) {
-        this.uploadsService.validateImageFile(imageFile);
-        imageUrl = await this.uploadsService.moveToUserDirectory(
-          imageFile.path,
+      // Process media file if provided (overrides template media)
+      if (mediaFile) {
+        mediaType = this.uploadsService.validateMediaFile(mediaFile);
+        mediaUrl = await this.uploadsService.moveToUserDirectory(
+          mediaFile.path,
           userId,
-          'images',
+          'media',
+          mediaFile.originalname,
         );
       }
 
@@ -208,13 +250,13 @@ export class BlastsController {
       createBlastDto.phoneNumbers = phoneNumbers;
       createBlastDto.message = message;
 
-      return this.blastsService.create(userId, createBlastDto, imageUrl);
+      return this.blastsService.create(userId, createBlastDto, mediaUrl, mediaType);
     } catch (error) {
       // Cleanup files on error
       this.uploadsService.cleanupFiles(
         phonesFile?.path,
-        imageFile?.path,
-        imageUrl,
+        mediaFile?.path,
+        mediaUrl,
       );
       throw error;
     }

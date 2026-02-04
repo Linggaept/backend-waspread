@@ -124,6 +124,14 @@ export class ContactsService {
       qb.andWhere('contact.tags @> :tags', { tags: JSON.stringify([query.tag]) });
     }
 
+    if (query.source) {
+      qb.andWhere('contact.source = :source', { source: query.source });
+    }
+
+    if (query.isWaContact !== undefined) {
+      qb.andWhere('contact.isWaContact = :isWaContact', { isWaContact: query.isWaContact });
+    }
+
     if (query.isActive !== undefined) {
       qb.andWhere('contact.isActive = :isActive', { isActive: query.isActive });
     }
@@ -223,6 +231,81 @@ export class ContactsService {
     return contacts.map((c) => c.phoneNumber);
   }
 
+  /**
+   * Get phone numbers by source (whatsapp, manual, import)
+   */
+  async getPhoneNumbersBySource(userId: string, source: string): Promise<string[]> {
+    const contacts = await this.contactRepository.find({
+      where: { userId, source, isActive: true },
+      select: ['phoneNumber'],
+    });
+
+    return contacts.map((c) => c.phoneNumber);
+  }
+
+  /**
+   * Get phone numbers by contact IDs
+   */
+  async getPhoneNumbersByIds(userId: string, contactIds: string[]): Promise<string[]> {
+    const contacts = await this.contactRepository
+      .createQueryBuilder('contact')
+      .select('contact.phoneNumber')
+      .where('contact.userId = :userId', { userId })
+      .andWhere('contact.id IN (:...ids)', { ids: contactIds })
+      .andWhere('contact.isActive = true')
+      .getMany();
+
+    return contacts.map((c) => c.phoneNumber);
+  }
+
+  /**
+   * Get phone numbers - only WA verified contacts
+   */
+  async getPhoneNumbersWaVerified(userId: string): Promise<string[]> {
+    const contacts = await this.contactRepository.find({
+      where: { userId, isWaContact: true, isActive: true },
+      select: ['phoneNumber'],
+    });
+
+    return contacts.map((c) => c.phoneNumber);
+  }
+
+  /**
+   * Count contacts by various filters (for preview)
+   */
+  async countByFilter(
+    userId: string,
+    filter: {
+      tag?: string;
+      source?: string;
+      contactIds?: string[];
+      onlyWaVerified?: boolean;
+    },
+  ): Promise<number> {
+    const qb = this.contactRepository
+      .createQueryBuilder('contact')
+      .where('contact.userId = :userId', { userId })
+      .andWhere('contact.isActive = true');
+
+    if (filter.tag) {
+      qb.andWhere('contact.tags @> :tags', { tags: JSON.stringify([filter.tag]) });
+    }
+
+    if (filter.source) {
+      qb.andWhere('contact.source = :source', { source: filter.source });
+    }
+
+    if (filter.contactIds && filter.contactIds.length > 0) {
+      qb.andWhere('contact.id IN (:...ids)', { ids: filter.contactIds });
+    }
+
+    if (filter.onlyWaVerified) {
+      qb.andWhere('contact.isWaContact = true');
+    }
+
+    return qb.getCount();
+  }
+
   async getTags(userId: string): Promise<string[]> {
     const result = await this.contactRepository
       .createQueryBuilder('contact')
@@ -257,6 +340,119 @@ export class ContactsService {
       inactive: total - active,
       withTags,
     };
+  }
+
+  /**
+   * Sync contacts from WhatsApp
+   */
+  async syncFromWhatsApp(
+    userId: string,
+    waContacts: Array<{
+      phoneNumber: string;
+      name: string | null;
+      pushname: string | null;
+      isMyContact: boolean;
+      isWAContact: boolean;
+    }>,
+    options: { updateExisting?: boolean; onlyMyContacts?: boolean } = {},
+  ): Promise<{
+    imported: number;
+    updated: number;
+    skipped: number;
+    total: number;
+  }> {
+    const { updateExisting = true, onlyMyContacts = false } = options;
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    // Filter jika hanya kontak yang tersimpan di HP
+    const contactsToSync = onlyMyContacts
+      ? waContacts.filter((c) => c.isMyContact)
+      : waContacts;
+
+    for (const waContact of contactsToSync) {
+      try {
+        const phoneNumber = this.formatPhoneNumber(waContact.phoneNumber);
+
+        // Skip jika nomor tidak valid
+        if (!phoneNumber || phoneNumber.length < 10) {
+          skipped++;
+          continue;
+        }
+
+        // Cek apakah sudah ada
+        const existing = await this.contactRepository.findOne({
+          where: { userId, phoneNumber },
+        });
+
+        if (existing) {
+          if (updateExisting) {
+            // Update info dari WhatsApp
+            existing.waName = waContact.pushname || waContact.name || existing.waName;
+            existing.isWaContact = waContact.isWAContact;
+            existing.lastSyncedAt = new Date();
+
+            // Update nama jika belum ada
+            if (!existing.name && (waContact.name || waContact.pushname)) {
+              existing.name = waContact.name || waContact.pushname || undefined;
+            }
+
+            // Add 'whatsapp' tag if not already present
+            const currentTags = existing.tags || [];
+            if (!currentTags.includes('whatsapp')) {
+              existing.tags = [...currentTags, 'whatsapp'];
+            }
+
+            await this.contactRepository.save(existing);
+            updated++;
+          } else {
+            skipped++;
+          }
+        } else {
+          // Create new contact
+          const contact = this.contactRepository.create({
+            userId,
+            phoneNumber,
+            name: waContact.name || waContact.pushname || undefined,
+            waName: waContact.pushname || waContact.name || undefined,
+            isWaContact: waContact.isWAContact,
+            source: 'whatsapp',
+            lastSyncedAt: new Date(),
+            isActive: true,
+            tags: ['whatsapp'],
+          });
+
+          await this.contactRepository.save(contact);
+          imported++;
+        }
+      } catch (error) {
+        this.logger.error(`Failed to sync contact ${waContact.phoneNumber}: ${error}`);
+        skipped++;
+      }
+    }
+
+    this.logger.log(
+      `WhatsApp sync for user ${userId}: ${imported} imported, ${updated} updated, ${skipped} skipped`,
+    );
+
+    return {
+      imported,
+      updated,
+      skipped,
+      total: contactsToSync.length,
+    };
+  }
+
+  /**
+   * Get contacts synced from WhatsApp
+   */
+  async getWhatsAppSyncedContacts(userId: string): Promise<Contact[]> {
+    return this.contactRepository.find({
+      where: { userId, source: 'whatsapp' },
+      order: { name: 'ASC' },
+    });
   }
 
   private formatPhoneNumber(phone: string): string {

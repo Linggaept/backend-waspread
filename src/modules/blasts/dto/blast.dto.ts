@@ -49,32 +49,36 @@ export class CreateBlastDto {
   })
   variableValues?: Record<string, string>;
 
+  // ==================== Recipient Source ====================
+
+  @ApiPropertyOptional({
+    example: 'manual',
+    enum: ['manual', 'from_contacts', 'file'],
+    description: 'How to select recipients: manual (input numbers), from_contacts (select from saved contacts), file (upload CSV/Excel)',
+  })
+  @IsOptional()
+  @IsString()
+  recipientSource?: 'manual' | 'from_contacts' | 'file';
+
   @ApiPropertyOptional({
     example: ['628123456789', '628987654331'],
-    description:
-      'Target phone numbers. Required if phonesFile is not provided. Can be JSON string in multipart form.',
+    description: 'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
   })
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1, { message: 'At least one phone number is required' })
   @IsString({ each: true })
   @Transform(({ value }) => {
-    // Handle empty string from multipart form-data
     if (value === '' || value === null || value === undefined) {
       return undefined;
     }
-    // Handle comma-separated string from multipart form-data
     if (typeof value === 'string') {
-      // Try JSON parse first
       try {
         const parsed = JSON.parse(value);
         return Array.isArray(parsed) ? parsed : undefined;
       } catch {
-        // If not JSON, try comma-separated
         if (value.includes(',')) {
           return value.split(',').map((s: string) => s.trim()).filter(Boolean);
         }
-        // Single value
         return value.trim() ? [value.trim()] : undefined;
       }
     }
@@ -83,13 +87,25 @@ export class CreateBlastDto {
   phoneNumbers?: string[];
 
   @ApiPropertyOptional({
-    example: 'promo',
-    description:
-      'Contact tag to select recipients from saved contacts. If provided, phoneNumbers will be fetched from contacts module.',
+    example: ['contact-uuid-1', 'contact-uuid-2'],
+    description: 'Selected contact IDs from checkbox (when recipientSource = from_contacts)',
   })
   @IsOptional()
-  @IsString()
-  contactTag?: string;
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : undefined;
+      } catch {
+        return value.includes(',') ? value.split(',').map((s: string) => s.trim()).filter(Boolean) : [value.trim()];
+      }
+    }
+    return value;
+  })
+  contactIds?: string[];
 
   @ApiPropertyOptional({
     example: 3000,
@@ -100,7 +116,6 @@ export class CreateBlastDto {
   @IsOptional()
   @Min(1000)
   @Transform(({ value }) => {
-    // Handle string from multipart form-data
     if (typeof value === 'string') {
       if (value === '') return undefined;
       const parsed = parseInt(value, 10);
@@ -110,15 +125,14 @@ export class CreateBlastDto {
   })
   delayMs?: number;
 
-  // File fields - these are handled by the file interceptor
-  // but we need to allow them in the DTO to pass validation
+  // File fields - handled by file interceptor
   @Allow()
   @IsOptional()
   phonesFile?: any;
 
   @Allow()
   @IsOptional()
-  imageFile?: any;
+  mediaFile?: any;
 }
 
 export class BlastResponseDto {
@@ -140,8 +154,10 @@ export class BlastResponseDto {
   pendingCount: number;
   @ApiProperty()
   delayMs: number;
-  @ApiPropertyOptional()
-  imageUrl?: string;
+  @ApiPropertyOptional({ description: 'Media file URL (image, video, audio, document)' })
+  mediaUrl?: string;
+  @ApiPropertyOptional({ enum: ['image', 'video', 'audio', 'document'], description: 'Type of attached media' })
+  mediaType?: string;
   @ApiPropertyOptional()
   startedAt?: Date;
   @ApiPropertyOptional()
@@ -188,11 +204,12 @@ export class BlastQueryDto {
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ 
-    example: 'completed', 
-    description: 'Filter by status (pending, processing, completed, cancelled, failed)' 
+  @ApiPropertyOptional({
+    example: 'completed',
+    description: 'Filter by status (pending, processing, completed, cancelled, failed)'
   })
   @IsOptional()
   @IsString()
   status?: string;
 }
+

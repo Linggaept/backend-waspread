@@ -77,7 +77,10 @@ export class Blast {
   errorMessage: string;
 
   @Column({ nullable: true })
-  imageUrl?: string;
+  mediaUrl?: string;
+
+  @Column({ nullable: true })
+  mediaType?: string; // 'image' | 'video' | 'audio' | 'document'
 
   @Column({ default: 0 })
   replyCount: number;

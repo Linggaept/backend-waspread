@@ -44,10 +44,10 @@ export class TemplatesController {
   ) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('imageFile'))
+  @UseInterceptors(FileInterceptor('mediaFile'))
   @ApiOperation({
     summary: 'Create a new template',
-    description: 'Create a blast message template. Optionally include an image.',
+    description: 'Create a blast message template. Optionally include media (image, video, audio, or document).',
   })
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
@@ -70,10 +70,10 @@ export class TemplatesController {
           example: 'promo',
           description: 'Category for organizing',
         },
-        imageFile: {
+        mediaFile: {
           type: 'string',
           format: 'binary',
-          description: 'Optional image attachment',
+          description: 'Optional media attachment (image, video, audio, document)',
         },
       },
     },
@@ -82,28 +82,30 @@ export class TemplatesController {
   async create(
     @CurrentUser('id') userId: string,
     @Body() createTemplateDto: CreateTemplateDto,
-    @UploadedFile() imageFile?: Express.Multer.File,
+    @UploadedFile() mediaFile?: Express.Multer.File,
   ) {
-    let imageUrl: string | undefined;
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
 
     try {
-      if (imageFile) {
-        this.uploadsService.validateImageFile(imageFile);
-        imageUrl = await this.uploadsService.moveToUserDirectory(
-          imageFile.path,
+      if (mediaFile) {
+        mediaType = this.uploadsService.validateMediaFile(mediaFile);
+        mediaUrl = await this.uploadsService.moveToUserDirectory(
+          mediaFile.path,
           userId,
-          'images',
+          'media',
+          mediaFile.originalname,
         );
       }
 
-      return this.templatesService.create(userId, createTemplateDto, imageUrl);
+      return this.templatesService.create(userId, createTemplateDto, mediaUrl, mediaType);
     } catch (error) {
       // Cleanup on error
-      if (imageFile?.path) {
-        this.uploadsService.cleanupTempFile(imageFile.path);
+      if (mediaFile?.path) {
+        this.uploadsService.cleanupTempFile(mediaFile.path);
       }
-      if (imageUrl) {
-        this.uploadsService.cleanupTempFile(imageUrl);
+      if (mediaUrl) {
+        this.uploadsService.cleanupTempFile(mediaUrl);
       }
       throw error;
     }
@@ -168,7 +170,8 @@ export class TemplatesController {
       type: 'object',
       properties: {
         message: { type: 'string' },
-        imageUrl: { type: 'string' },
+        mediaUrl: { type: 'string' },
+        mediaType: { type: 'string', enum: ['image', 'video', 'audio', 'document'] },
       },
     },
   })
@@ -181,7 +184,7 @@ export class TemplatesController {
   }
 
   @Put(':id')
-  @UseInterceptors(FileInterceptor('imageFile'))
+  @UseInterceptors(FileInterceptor('mediaFile'))
   @ApiOperation({ summary: 'Update template' })
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiResponse({ status: 200, description: 'Template updated', type: TemplateResponseDto })
@@ -190,27 +193,29 @@ export class TemplatesController {
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateTemplateDto: UpdateTemplateDto,
-    @UploadedFile() imageFile?: Express.Multer.File,
+    @UploadedFile() mediaFile?: Express.Multer.File,
   ) {
-    let imageUrl: string | undefined;
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
 
     try {
-      if (imageFile) {
-        this.uploadsService.validateImageFile(imageFile);
-        imageUrl = await this.uploadsService.moveToUserDirectory(
-          imageFile.path,
+      if (mediaFile) {
+        mediaType = this.uploadsService.validateMediaFile(mediaFile);
+        mediaUrl = await this.uploadsService.moveToUserDirectory(
+          mediaFile.path,
           userId,
-          'images',
+          'media',
+          mediaFile.originalname,
         );
       }
 
-      return this.templatesService.update(userId, id, updateTemplateDto, imageUrl);
+      return this.templatesService.update(userId, id, updateTemplateDto, mediaUrl, mediaType);
     } catch (error) {
-      if (imageFile?.path) {
-        this.uploadsService.cleanupTempFile(imageFile.path);
+      if (mediaFile?.path) {
+        this.uploadsService.cleanupTempFile(mediaFile.path);
       }
-      if (imageUrl) {
-        this.uploadsService.cleanupTempFile(imageUrl);
+      if (mediaUrl) {
+        this.uploadsService.cleanupTempFile(mediaUrl);
       }
       throw error;
     }
@@ -228,13 +233,13 @@ export class TemplatesController {
     return { message: 'Template deleted successfully' };
   }
 
-  @Delete(':id/image')
-  @ApiOperation({ summary: 'Remove image from template' })
-  @ApiResponse({ status: 200, description: 'Image removed', type: TemplateResponseDto })
-  removeImage(
+  @Delete(':id/media')
+  @ApiOperation({ summary: 'Remove media from template' })
+  @ApiResponse({ status: 200, description: 'Media removed', type: TemplateResponseDto })
+  removeMedia(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.templatesService.removeImage(userId, id);
+    return this.templatesService.removeMedia(userId, id);
   }
 }

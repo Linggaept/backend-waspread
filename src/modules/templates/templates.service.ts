@@ -24,7 +24,8 @@ export class TemplatesService {
   async create(
     userId: string,
     createTemplateDto: CreateTemplateDto,
-    imageUrl?: string,
+    mediaUrl?: string,
+    mediaType?: string,
   ): Promise<Template> {
     // Auto-detect variables from message if not provided
     const variables = createTemplateDto.variables || this.extractVariables(createTemplateDto.message);
@@ -33,7 +34,8 @@ export class TemplatesService {
       userId,
       name: createTemplateDto.name,
       message: createTemplateDto.message,
-      imageUrl,
+      mediaUrl,
+      mediaType,
       category: createTemplateDto.category,
       variables,
     });
@@ -90,7 +92,8 @@ export class TemplatesService {
     userId: string,
     id: string,
     updateTemplateDto: UpdateTemplateDto,
-    imageUrl?: string,
+    mediaUrl?: string,
+    mediaType?: string,
   ): Promise<Template> {
     const template = await this.findOne(userId, id);
 
@@ -109,8 +112,9 @@ export class TemplatesService {
     if (updateTemplateDto.isActive !== undefined) {
       template.isActive = updateTemplateDto.isActive;
     }
-    if (imageUrl) {
-      template.imageUrl = imageUrl;
+    if (mediaUrl) {
+      template.mediaUrl = mediaUrl;
+      template.mediaType = mediaType;
     }
 
     return this.templateRepository.save(template);
@@ -122,9 +126,10 @@ export class TemplatesService {
     this.logger.log(`Template ${id} deleted for user ${userId}`);
   }
 
-  async removeImage(userId: string, id: string): Promise<Template> {
+  async removeMedia(userId: string, id: string): Promise<Template> {
     const template = await this.findOne(userId, id);
-    template.imageUrl = undefined;
+    template.mediaUrl = undefined;
+    template.mediaType = undefined;
     return this.templateRepository.save(template);
   }
 
@@ -175,7 +180,7 @@ export class TemplatesService {
     userId: string,
     templateId: string,
     variableValues?: Record<string, string>,
-  ): Promise<{ message: string; imageUrl?: string }> {
+  ): Promise<{ message: string; mediaUrl?: string; mediaType?: string }> {
     const template = await this.findOne(userId, templateId);
 
     // Increment usage
@@ -186,7 +191,8 @@ export class TemplatesService {
 
     return {
       message,
-      imageUrl: template.imageUrl,
+      mediaUrl: template.mediaUrl,
+      mediaType: template.mediaType,
     };
   }
 

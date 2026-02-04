@@ -43,6 +43,18 @@ export class Contact {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: 'manual' })
+  source: string; // 'manual' | 'whatsapp' | 'import'
+
+  @Column({ nullable: true })
+  waName?: string; // Nama dari profil WhatsApp (pushname)
+
+  @Column({ default: false })
+  isWaContact: boolean; // Terdaftar di WhatsApp
+
+  @Column({ nullable: true })
+  lastSyncedAt?: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 

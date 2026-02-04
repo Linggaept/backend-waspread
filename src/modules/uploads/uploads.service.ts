@@ -24,8 +24,24 @@ export class UploadsService {
     'image/gif',
     'image/webp',
   ];
+  private readonly ALLOWED_MEDIA_TYPES: Record<string, string[]> = {
+    image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    video: ['video/mp4', 'video/3gpp', 'video/quicktime', 'video/x-msvideo'],
+    audio: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac', 'audio/mp4'],
+    document: [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/plain',
+    ],
+  };
   private readonly MAX_PHONE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
   private readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+  private readonly MAX_MEDIA_SIZE = 16 * 1024 * 1024; // 16MB for all media
 
   constructor(private readonly storageService: StorageService) {
     this.ensureDirectories();
@@ -225,6 +241,53 @@ export class UploadsService {
     }
   }
 
+  /**
+   * Validate media file (image, video, audio, document)
+   * Returns the media type category
+   */
+  validateMediaFile(file: Express.Multer.File): 'image' | 'video' | 'audio' | 'document' {
+    if (!file) {
+      throw new BadRequestException('No media file provided');
+    }
+
+    // Find which category this mimetype belongs to
+    let mediaType: 'image' | 'video' | 'audio' | 'document' | null = null;
+
+    for (const [type, mimetypes] of Object.entries(this.ALLOWED_MEDIA_TYPES)) {
+      if (mimetypes.includes(file.mimetype)) {
+        mediaType = type as 'image' | 'video' | 'audio' | 'document';
+        break;
+      }
+    }
+
+    if (!mediaType) {
+      const allTypes = Object.values(this.ALLOWED_MEDIA_TYPES).flat();
+      throw new BadRequestException(
+        `Invalid file type: ${file.mimetype}. Allowed types: images, videos, audio, documents (PDF, Word, Excel, etc.)`,
+      );
+    }
+
+    if (file.size > this.MAX_MEDIA_SIZE) {
+      throw new BadRequestException(
+        `File too large. Maximum size: ${this.MAX_MEDIA_SIZE / (1024 * 1024)}MB`,
+      );
+    }
+
+    return mediaType;
+  }
+
+  /**
+   * Get media type from mimetype
+   */
+  getMediaType(mimetype: string): 'image' | 'video' | 'audio' | 'document' | null {
+    for (const [type, mimetypes] of Object.entries(this.ALLOWED_MEDIA_TYPES)) {
+      if (mimetypes.includes(mimetype)) {
+        return type as 'image' | 'video' | 'audio' | 'document';
+      }
+    }
+    return null;
+  }
+
   validatePhoneFile(file: Express.Multer.File): void {
     if (!file) {
       throw new BadRequestException('No phone numbers file provided');
@@ -247,11 +310,11 @@ export class UploadsService {
   async moveToUserDirectory(
     tempPath: string,
     userId: string,
-    subFolder: 'images' | 'temp' = 'images',
+    subFolder: 'images' | 'media' | 'temp' = 'images',
     originalName?: string,
   ): Promise<string> {
     // If R2 is enabled and this is an image, compress and upload to R2
-    if (subFolder === 'images' && this.storageService.isR2Enabled()) {
+    if ((subFolder === 'images' || subFolder === 'media') && this.storageService.isR2Enabled()) {
       try {
         const result = await this.storageService.compressAndUpload(
           tempPath,

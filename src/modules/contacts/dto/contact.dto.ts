@@ -125,6 +125,18 @@ export class ContactResponseDto {
   @ApiPropertyOptional({ type: [String] })
   tags?: string[];
 
+  @ApiProperty({ enum: ['manual', 'whatsapp', 'import'], example: 'whatsapp' })
+  source: string;
+
+  @ApiPropertyOptional({ description: 'WhatsApp profile name (pushname)' })
+  waName?: string;
+
+  @ApiProperty({ description: 'Is registered on WhatsApp' })
+  isWaContact: boolean;
+
+  @ApiPropertyOptional({ description: 'Last synced from WhatsApp' })
+  lastSyncedAt?: Date;
+
   @ApiProperty()
   isActive: boolean;
 
@@ -163,6 +175,27 @@ export class ContactQueryDto {
   @IsOptional()
   tag?: string;
 
+  @ApiPropertyOptional({
+    example: 'whatsapp',
+    enum: ['whatsapp', 'manual', 'import'],
+    description: 'Filter by contact source',
+  })
+  @IsString()
+  @IsOptional()
+  source?: 'whatsapp' | 'manual' | 'import';
+
+  @ApiPropertyOptional({ example: true, description: 'Filter only WhatsApp verified contacts' })
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+    }
+    return value;
+  })
+  isWaContact?: boolean;
+
   @ApiPropertyOptional({ example: true, description: 'Filter by active status' })
   @IsBoolean()
   @IsOptional()
@@ -182,6 +215,6 @@ export class ContactQueryDto {
 
   @ApiPropertyOptional({ example: 20, description: 'Items per page', default: 20 })
   @IsOptional()
-  @Transform(({ value }) => Math.min(parseInt(value) || 20, 100))
+  @Transform(({ value }) => Math.min(parseInt(value) || 20, 5000))
   limit?: number;
 }

@@ -598,7 +598,8 @@ export class WhatsAppService implements OnModuleDestroy {
     userId: string,
     phoneNumber: string,
     message: string,
-    imagePath: string,
+    mediaPath: string,
+    mediaType?: string,
   ): Promise<boolean> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
@@ -614,25 +615,34 @@ export class WhatsAppService implements OnModuleDestroy {
 
       // Load media based on source type
       let media: MessageMedia;
-      
-      if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+
+      if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
         // R2 URL - download and cache
-        this.logger.debug(`Sending image from URL: ${imagePath}`);
-        media = await this.getCachedMediaFromUrl(imagePath);
+        this.logger.debug(`Sending media from URL: ${mediaPath} (type: ${mediaType})`);
+        media = await this.getCachedMediaFromUrl(mediaPath);
       } else {
         // Local path
-        let absolutePath = imagePath;
-        if (imagePath.startsWith('/uploads')) {
-          absolutePath = path.join(process.cwd(), imagePath);
+        let absolutePath = mediaPath;
+        if (mediaPath.startsWith('/uploads')) {
+          absolutePath = path.join(process.cwd(), mediaPath);
         }
-        this.logger.debug(`Sending image from local: ${absolutePath}`);
+        this.logger.debug(`Sending media from local: ${absolutePath} (type: ${mediaType})`);
         media = await this.getCachedMedia(absolutePath);
       }
 
-      // Send message with media and caption
-      await instance.client.sendMessage(chatId, media, {
-        caption: message,
-      });
+      // Send based on media type
+      if (mediaType === 'document') {
+        // Documents are sent as files with filename
+        await instance.client.sendMessage(chatId, media, {
+          sendMediaAsDocument: true,
+          caption: message,
+        });
+      } else {
+        // Images, videos, audio are sent with caption
+        await instance.client.sendMessage(chatId, media, {
+          caption: message,
+        });
+      }
 
       return true;
     } catch (error: any) {
@@ -855,6 +865,108 @@ export class WhatsAppService implements OnModuleDestroy {
     const [data, total] = await qb.getManyAndCount();
 
     return { data, total };
+  }
+
+  /**
+   * Get all contacts from WhatsApp
+   */
+  async getWhatsAppContacts(userId: string): Promise<{
+    contacts: Array<{
+      phoneNumber: string;
+      name: string | null;
+      pushname: string | null;
+      isMyContact: boolean;
+      isWAContact: boolean;
+    }>;
+    total: number;
+  }> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    try {
+      this.updateActivity(userId);
+
+      const waContacts = await instance.client.getContacts();
+
+      this.logger.debug(`Raw contacts from WA: ${waContacts.length}`);
+
+      // Filter dan format contacts
+      const contacts = waContacts
+        .filter((contact: any) => {
+          // Exclude groups, broadcast, status, dan self
+          // Include both personal and business contacts
+          return (
+            !contact.isGroup &&
+            contact.id?.server === 'c.us' &&
+            !contact.isMe &&
+            contact.id?.user // Has phone number
+          );
+        })
+        .map((contact: any) => ({
+          phoneNumber: contact.id?.user || contact.number || '',
+          name: contact.name || null,
+          pushname: contact.pushname || null,
+          isMyContact: contact.isMyContact || false,
+          isWAContact: contact.isWAContact !== false,
+        }))
+        .filter((c: any) => c.phoneNumber); // Remove empty phone numbers
+
+      this.logger.log(`Retrieved ${contacts.length} contacts from WhatsApp for user ${userId}`);
+
+      return {
+        contacts,
+        total: contacts.length,
+      };
+    } catch (error: any) {
+      this.logger.error(`Failed to get WhatsApp contacts for user ${userId}: ${error}`);
+
+      // Handle stale client
+      if (error?.message?.includes('detached Frame') || error?.message?.includes('Protocol error')) {
+        await this.forceDisconnect(userId);
+        throw new Error('WhatsApp session expired. Please reconnect.');
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Check if multiple numbers are registered on WhatsApp
+   */
+  async checkNumbersRegistered(userId: string, phoneNumbers: string[]): Promise<{
+    registered: string[];
+    notRegistered: string[];
+  }> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    const registered: string[] = [];
+    const notRegistered: string[] = [];
+
+    this.updateActivity(userId);
+
+    for (const phone of phoneNumbers) {
+      try {
+        const chatId = this.formatPhoneNumber(phone);
+        const isRegistered = await instance.client.isRegisteredUser(chatId);
+
+        if (isRegistered) {
+          registered.push(phone);
+        } else {
+          notRegistered.push(phone);
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to check number ${phone}: ${error}`);
+        // Assume registered if check fails
+        registered.push(phone);
+      }
+    }
+
+    return { registered, notRegistered };
   }
 }
 

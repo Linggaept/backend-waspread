@@ -55,7 +55,7 @@ export class CreateTemplateDto {
   // File field - handled by file interceptor
   @Allow()
   @IsOptional()
-  imageFile?: any;
+  mediaFile?: any;
 }
 
 export class UpdateTemplateDto extends PartialType(CreateTemplateDto) {
@@ -81,8 +81,11 @@ export class TemplateResponseDto {
   @ApiProperty()
   message: string;
 
-  @ApiPropertyOptional()
-  imageUrl?: string;
+  @ApiPropertyOptional({ description: 'Media file URL' })
+  mediaUrl?: string;
+
+  @ApiPropertyOptional({ enum: ['image', 'video', 'audio', 'document'], description: 'Type of media' })
+  mediaType?: string;
 
   @ApiPropertyOptional()
   category?: string;

@@ -36,7 +36,8 @@ export class BlastsService {
   async create(
     userId: string,
     createBlastDto: CreateBlastDto,
-    imageUrl?: string,
+    mediaUrl?: string,
+    mediaType?: string,
   ): Promise<Blast> {
     // Check WhatsApp session
     const isReady = await this.whatsappService.isSessionReady(userId);
@@ -79,7 +80,8 @@ export class BlastsService {
         pendingCount: recipientCount,
         delayMs: createBlastDto.delayMs || 3000,
         status: BlastStatus.PENDING,
-        imageUrl: imageUrl,
+        mediaUrl,
+        mediaType,
       });
 
       await queryRunner.manager.save(blast);
@@ -156,7 +158,8 @@ export class BlastsService {
         userId,
         phoneNumber: message.phoneNumber,
         message: blast.message,
-        imageUrl: blast.imageUrl || undefined,
+        mediaUrl: blast.mediaUrl || undefined,
+        mediaType: blast.mediaType || undefined,
       } as BlastJobData,
       opts: {
         delay: i * blast.delayMs,

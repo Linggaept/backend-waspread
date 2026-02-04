@@ -31,7 +31,10 @@ export class Template {
   message: string;
 
   @Column({ nullable: true })
-  imageUrl?: string;
+  mediaUrl?: string;
+
+  @Column({ nullable: true })
+  mediaType?: string; // 'image' | 'video' | 'audio' | 'document'
 
   @Column({ nullable: true })
   category?: string;

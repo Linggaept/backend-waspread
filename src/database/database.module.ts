@@ -31,7 +31,9 @@ import { Notification } from './entities/notification.entity';
         // WARNING: Set to false after initial deployment!
         synchronize: true,
         logging: configService.get<string>('app.nodeEnv') === 'development',
-        timezone: 'UTC',
+        extra:{
+          timezone: 'UTC',
+        },
       }),
     }),
   ],
