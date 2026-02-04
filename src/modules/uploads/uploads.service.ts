@@ -39,9 +39,9 @@ export class UploadsService {
       'text/plain',
     ],
   };
-  private readonly MAX_PHONE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  private readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-  private readonly MAX_MEDIA_SIZE = 16 * 1024 * 1024; // 16MB for all media
+  private readonly MAX_PHONE_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  private readonly MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+  private readonly MAX_MEDIA_SIZE = 20 * 1024 * 1024; // 20MB for all media
 
   constructor(private readonly storageService: StorageService) {
     this.ensureDirectories();
