@@ -88,6 +88,6 @@ export class Notification {
   @Column({ default: false })
   emailSent: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }
