@@ -2,8 +2,10 @@ import { Injectable, NotFoundException, BadRequestException, Logger, Inject, for
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
+import { User } from '../../database/entities/user.entity';
 import { PackagesService } from '../packages/packages.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SubscriptionQueryDto } from './dto';
 
 @Injectable()
@@ -22,8 +24,11 @@ export class SubscriptionsService {
   constructor(
     @InjectRepository(Subscription)
     private readonly subscriptionRepository: Repository<Subscription>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly packagesService: PackagesService,
     private readonly whatsappGateway: WhatsAppGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async activateSubscription(
@@ -53,6 +58,18 @@ export class SubscriptionsService {
     await this.subscriptionRepository.save(subscription);
     this.logger.log(`Subscription activated for user ${userId}, package ${pkg.name}`);
 
+    // Send notification
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (user) {
+      this.notificationsService.notifySubscriptionActivated(
+        userId,
+        user.email,
+        pkg.name,
+        pkg.monthlyQuota,
+        endDate.toLocaleDateString('id-ID'),
+      ).catch(err => this.logger.error('Failed to send subscription activated notification:', err));
+    }
+
     return subscription;
   }
 
@@ -77,10 +94,17 @@ export class SubscriptionsService {
       subscription.status = SubscriptionStatus.EXPIRED;
       await this.subscriptionRepository.save(subscription);
 
-      // Send subscription expired notification
+      // Send subscription expired notification via WebSocket
       this.whatsappGateway.sendSubscriptionExpired(userId, {
         expiredAt: subscription.endDate,
       });
+
+      // Send notification via NotificationsService
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (user) {
+        this.notificationsService.notifySubscriptionExpired(userId, user.email)
+          .catch(err => this.logger.error('Failed to send subscription expired notification:', err));
+      }
 
       return null;
     }
@@ -163,18 +187,27 @@ export class SubscriptionsService {
         limit: pkg.monthlyQuota,
         warningType: 'depleted',
       });
+      // Send in-app + email notification for depleted quota
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (user) {
+        this.notificationsService.notifyQuotaDepleted(userId, user.email)
+          .catch(err => this.logger.error('Failed to send quota depleted notification:', err));
+      }
     } else if (percentageRemaining <= 5) {
       this.whatsappGateway.sendQuotaWarning(userId, {
         remaining: remainingQuota,
         limit: pkg.monthlyQuota,
         warningType: 'critical',
       });
-    } else if (percentageRemaining <= 10) {
+    } else if (percentageRemaining <= 20) {
       this.whatsappGateway.sendQuotaWarning(userId, {
         remaining: remainingQuota,
         limit: pkg.monthlyQuota,
         warningType: 'low',
       });
+      // Send in-app notification for low quota (20%)
+      this.notificationsService.notifyQuotaLow(userId, remainingQuota, pkg.monthlyQuota)
+        .catch(err => this.logger.error('Failed to send quota low notification:', err));
     }
   }
 

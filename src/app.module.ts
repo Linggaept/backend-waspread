@@ -20,6 +20,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } from './config';
 import { validate } from './config/env.validation';
 
@@ -64,6 +65,7 @@ import { validate } from './config/env.validation';
     ContactsModule,
     TemplatesModule,
     AuditModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

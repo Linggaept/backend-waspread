@@ -3,14 +3,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
 import { Payment } from '../../database/entities/payment.entity';
+import { User } from '../../database/entities/user.entity';
 import { PackagesModule } from '../packages/packages.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Payment]),
+    TypeOrmModule.forFeature([Payment, User]),
     PackagesModule,
     forwardRef(() => SubscriptionsModule),
+    NotificationsModule,
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService],

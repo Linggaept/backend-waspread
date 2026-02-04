@@ -14,6 +14,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { BadRequestException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../../database/entities/audit-log.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType, NotificationChannel } from '../../database/entities/notification.entity';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +28,7 @@ export class AuthService {
     private readonly passwordResetRepository: Repository<PasswordReset>,
     private readonly mailService: MailService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -63,6 +66,11 @@ export class AuthService {
       userId: user.id,
       action: AuditAction.REGISTER,
       metadata: { email: user.email },
+    });
+
+    // Send welcome notification
+    this.notificationsService.notifyWelcome(user.id, user.email, user.name).catch(err => {
+      console.error('Failed to send welcome notification:', err);
     });
 
     return {
@@ -203,6 +211,18 @@ export class AuthService {
     // Mark as used
     resetRequest.isUsed = true;
     await this.passwordResetRepository.save(resetRequest);
+
+    // Send password changed notification
+    this.notificationsService.notify({
+      userId: resetRequest.userId,
+      type: NotificationType.PASSWORD_CHANGED,
+      title: 'Password Berhasil Diubah',
+      message: 'Password akun Anda telah berhasil diubah. Jika Anda tidak melakukan ini, segera hubungi support.',
+      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
+      email: resetRequest.email,
+    }).catch(err => {
+      console.error('Failed to send password changed notification:', err);
+    });
 
     return { message: 'Password reset successful. You can now login with your new password.' };
   }

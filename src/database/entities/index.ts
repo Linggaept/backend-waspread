@@ -7,4 +7,5 @@ export * from './blast.entity';
 export * from './blast-reply.entity';
 export * from './password-reset.entity';
 export * from './audit-log.entity';
+export * from './notification.entity';
 

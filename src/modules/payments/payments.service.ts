@@ -8,6 +8,8 @@ import { Payment, PaymentStatus } from '../../database/entities/payment.entity';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreatePaymentDto, MidtransNotificationDto, PaymentQueryDto } from './dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { User } from '../../database/entities/user.entity';
 
 @Injectable()
 export class PaymentsService {
@@ -17,9 +19,12 @@ export class PaymentsService {
   constructor(
     @InjectRepository(Payment)
     private readonly paymentRepository: Repository<Payment>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
     private readonly packagesService: PackagesService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly notificationsService: NotificationsService,
   ) {
     // Try both methods to get the key
     const serverKey = this.configService.get<string>('midtrans.serverKey') || process.env.MIDTRANS_SERVER_KEY;
@@ -183,12 +188,16 @@ export class PaymentsService {
 
     const payment = await this.paymentRepository.findOne({
       where: { orderId: order_id },
+      relations: ['package'],
     });
 
     if (!payment) {
       this.logger.warn(`Payment not found for order: ${order_id}`);
       return;
     }
+
+    // Get user for notification
+    const user = await this.userRepository.findOne({ where: { id: payment.userId } });
 
     // Update payment info
     if (transaction_id) {
@@ -228,6 +237,24 @@ export class PaymentsService {
 
     await this.paymentRepository.save(payment);
     this.logger.log(`Payment ${order_id} updated to status: ${payment.status}`);
+
+    // Send notifications based on payment status
+    if (user && payment.package) {
+      if (payment.status === PaymentStatus.SUCCESS) {
+        this.notificationsService.notifyPaymentSuccess(
+          payment.userId,
+          user.email,
+          payment.package.name,
+          Number(payment.amount),
+        ).catch(err => this.logger.error('Failed to send payment success notification:', err));
+      } else if (payment.status === PaymentStatus.FAILED) {
+        this.notificationsService.notifyPaymentFailed(
+          payment.userId,
+          user.email,
+          payment.package.name,
+        ).catch(err => this.logger.error('Failed to send payment failed notification:', err));
+      }
+    }
   }
 
   async findByUser(userId: string): Promise<Payment[]> {

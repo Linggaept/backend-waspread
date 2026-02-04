@@ -12,6 +12,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PasswordReset } from '../../database/entities/password-reset.entity';
 import { MailModule } from '../mail/mail.module';
 import { TokenBlacklistService } from './services/token-blacklist.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TokenBlacklistService } from './services/token-blacklist.service';
     PackagesModule,
     SubscriptionsModule,
     MailModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([PasswordReset]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

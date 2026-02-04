@@ -6,18 +6,20 @@ import { BlastsController } from './blasts.controller';
 import { BlastProcessor } from './processors/blast.processor';
 import { Blast, BlastMessage } from '../../database/entities/blast.entity';
 import { BlastReply } from '../../database/entities/blast-reply.entity';
+import { User } from '../../database/entities/user.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { UploadsModule } from '../uploads';
 import { ContactsModule } from '../contacts/contacts.module';
 import { TemplatesModule } from '../templates/templates.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ReplyDetectionService } from './services/reply-detection.service';
 import { BlastRepliesService } from './services/blast-replies.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Blast, BlastMessage, BlastReply]),
+    TypeOrmModule.forFeature([Blast, BlastMessage, BlastReply, User]),
     BullModule.registerQueue({
       name: 'blast',
     }),
@@ -26,6 +28,7 @@ import { BlastRepliesService } from './services/blast-replies.service';
     UploadsModule,
     ContactsModule,
     TemplatesModule,
+    NotificationsModule,
   ],
   controllers: [BlastsController],
   providers: [BlastsService, BlastProcessor, ReplyDetectionService, BlastRepliesService],

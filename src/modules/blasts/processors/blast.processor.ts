@@ -4,8 +4,10 @@ import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Blast, BlastStatus, BlastMessage, MessageStatus, MessageErrorType } from '../../../database/entities/blast.entity';
+import { User } from '../../../database/entities/user.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 export interface BlastJobData {
   blastId: string;
@@ -26,8 +28,11 @@ export class BlastProcessor extends WorkerHost {
     private readonly blastRepository: Repository<Blast>,
     @InjectRepository(BlastMessage)
     private readonly messageRepository: Repository<BlastMessage>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly whatsappService: WhatsAppService,
     private readonly whatsappGateway: WhatsAppGateway,
+    private readonly notificationsService: NotificationsService,
   ) {
     super();
   }
@@ -202,7 +207,7 @@ export class BlastProcessor extends WorkerHost {
         ? Math.round((completedAt.getTime() - blast.startedAt.getTime()) / 1000)
         : 0;
 
-      // Send blast completed notification
+      // Send blast completed notification via WebSocket
       this.whatsappGateway.sendBlastCompleted(blast.userId, {
         blastId,
         status: newStatus,
@@ -211,6 +216,28 @@ export class BlastProcessor extends WorkerHost {
         invalid: blast.invalidCount,
         duration,
       });
+
+      // Send in-app + email notification
+      const user = await this.userRepository.findOne({ where: { id: blast.userId } });
+      if (user) {
+        if (newStatus === BlastStatus.COMPLETED) {
+          this.notificationsService.notifyBlastCompleted(
+            blast.userId,
+            user.email,
+            blast.name,
+            blast.sentCount,
+            blast.failedCount,
+            blast.invalidCount,
+          ).catch(err => this.logger.error('Failed to send blast completed notification:', err));
+        } else {
+          this.notificationsService.notifyBlastFailed(
+            blast.userId,
+            user.email,
+            blast.name,
+            'Semua pesan gagal terkirim',
+          ).catch(err => this.logger.error('Failed to send blast failed notification:', err));
+        }
+      }
 
       this.logger.log(`Blast ${blastId} completed with status: ${newStatus}`);
     }

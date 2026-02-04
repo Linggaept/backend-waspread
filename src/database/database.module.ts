@@ -12,6 +12,7 @@ import { Contact } from './entities/contact.entity';
 import { Template } from './entities/template.entity';
 import { PasswordReset } from './entities/password-reset.entity';
 import { AuditLog } from './entities/audit-log.entity';
+import { Notification } from './entities/notification.entity';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { AuditLog } from './entities/audit-log.entity';
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
-        entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, BlastReply, Contact, Template, PasswordReset, AuditLog],
+        entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, BlastReply, Contact, Template, PasswordReset, AuditLog, Notification],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!
         synchronize: true,
