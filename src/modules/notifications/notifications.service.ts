@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -9,6 +9,7 @@ import {
   NotificationChannel,
 } from '../../database/entities/notification.entity';
 import { NotificationQueryDto } from './dto';
+import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 
 interface NotifyOptions {
   userId: string;
@@ -31,12 +32,29 @@ interface NotificationTemplateData {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly RETENTION_DAYS = 30;
+  private readonly TIMEZONE = 'Asia/Jakarta';
 
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
     private readonly mailerService: MailerService,
+    @Inject(forwardRef(() => WhatsAppGateway))
+    private readonly whatsappGateway: WhatsAppGateway,
   ) {}
+
+  /**
+   * Get current date/time in UTC
+   */
+  private getCurrentDate(): Date {
+    return new Date();
+  }
+
+  /**
+   * Get current year in UTC
+   */
+  private getCurrentYear(): number {
+    return new Date().getUTCFullYear();
+  }
 
   /**
    * Create and send a notification
@@ -61,6 +79,23 @@ export class NotificationsService {
     // Send email if channel includes email
     if (channels.includes(NotificationChannel.EMAIL) && options.email) {
       await this.sendEmailNotification(notification, options.email);
+    }
+
+    // Send WebSocket notification if channel includes WEBSOCKET or IN_APP
+    if (channels.includes(NotificationChannel.WEBSOCKET) || channels.includes(NotificationChannel.IN_APP)) {
+      // Send real-time notification
+      this.whatsappGateway.sendNotification(options.userId, {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        data: notification.data as Record<string, unknown>,
+        createdAt: notification.createdAt,
+      });
+
+      // Also update unread count
+      const unreadCount = await this.getUnreadCount(options.userId);
+      this.whatsappGateway.sendNotificationCount(options.userId, unreadCount);
     }
 
     this.logger.log(`Notification created: ${options.type} for user ${options.userId}`);
@@ -257,7 +292,7 @@ export class NotificationsService {
       </div>
 
       <div class="footer">
-        <p>© ${new Date().getFullYear()} Waspread. All rights reserved.</p>
+        <p>© ${this.getCurrentYear()} Waspread. All rights reserved.</p>
         <p>Email ini dikirim otomatis, mohon tidak membalas email ini.</p>
       </div>
     </div>
@@ -511,15 +546,30 @@ export class NotificationsService {
     }
 
     notification.isRead = true;
-    notification.readAt = new Date();
-    return this.notificationRepository.save(notification);
+    notification.readAt = this.getCurrentDate();
+    const saved = await this.notificationRepository.save(notification);
+
+    // Send WebSocket update
+    const unreadCount = await this.getUnreadCount(userId);
+    this.whatsappGateway.sendNotificationRead(userId, {
+      notificationId,
+      unreadCount,
+    });
+
+    return saved;
   }
 
   async markAllAsRead(userId: string): Promise<void> {
     await this.notificationRepository.update(
       { userId, isRead: false },
-      { isRead: true, readAt: new Date() },
+      { isRead: true, readAt: this.getCurrentDate() },
     );
+
+    // Send WebSocket update
+    this.whatsappGateway.sendNotificationRead(userId, {
+      allRead: true,
+      unreadCount: 0,
+    });
   }
 
   async delete(userId: string, notificationId: string): Promise<void> {
@@ -539,7 +589,7 @@ export class NotificationsService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async cleanupOldNotifications(): Promise<void> {
-    const cutoffDate = new Date();
+    const cutoffDate = this.getCurrentDate();
     cutoffDate.setDate(cutoffDate.getDate() - this.RETENTION_DAYS);
 
     const result = await this.notificationRepository.delete({

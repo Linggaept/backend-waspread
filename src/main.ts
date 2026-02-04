@@ -60,7 +60,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: '*',
+    origin: ['http://localhost:3000', 'http://localhost:2004', 'https://waspread.vercel.app', 'https://waspread.com', 'https://api.netadev.my.id', 'https://www.netadev.my.id'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });

@@ -46,15 +46,15 @@ export class BlastReply {
   @Column({ nullable: true })
   mediaType: string; // 'image', 'video', 'audio', 'document'
 
-  @Column()
+  @Column({ type: 'timestamptz', nullable: true })
   receivedAt: Date;
 
   @Column({ default: false })
   isRead: boolean;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   readAt: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }

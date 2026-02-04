@@ -64,13 +64,13 @@ export class Blast {
   @Column({ default: 3000 })
   delayMs: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   cancelledAt: Date;
 
   @Column({ nullable: true })
@@ -82,10 +82,10 @@ export class Blast {
   @Column({ default: 0 })
   replyCount: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToMany(() => BlastMessage, (message) => message.blast)
@@ -149,12 +149,12 @@ export class BlastMessage {
   })
   errorType: MessageErrorType;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   sentAt: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

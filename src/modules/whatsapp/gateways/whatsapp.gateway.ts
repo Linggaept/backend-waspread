@@ -8,11 +8,14 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Notification } from '../../../database/entities/notification.entity';
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: ['http://localhost:3000', 'http://localhost:2004', 'https://waspread.vercel.app', 'https://waspread.com', 'https://api.netadev.my.id', 'https://www.netadev.my.id'],
   },
   namespace: '/whatsapp',
 })
@@ -24,6 +27,11 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   // Map userId to socket IDs
   private userSockets: Map<string, Set<string>> = new Map();
+
+  constructor(
+    @InjectRepository(Notification)
+    private readonly notificationRepository: Repository<Notification>,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -42,7 +50,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage('subscribe')
-  handleSubscribe(
+  async handleSubscribe(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { userId: string },
   ) {
@@ -58,7 +66,27 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     this.userSockets.get(userId)!.add(client.id);
 
+    // Send initial notification count
+    const unreadCount = await this.notificationRepository.count({
+      where: { userId, isRead: false },
+    });
+    client.emit('notification:count', { unreadCount });
+
     return { success: true };
+  }
+
+  @SubscribeMessage('get-notification-count')
+  async handleGetNotificationCount(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    const { userId } = data;
+    const unreadCount = await this.notificationRepository.count({
+      where: { userId, isRead: false },
+    });
+    
+    client.emit('notification:count', { unreadCount });
+    return { unreadCount };
   }
 
   @SubscribeMessage('unsubscribe')
@@ -172,5 +200,35 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   }) {
     this.server.to(`user:${userId}`).emit('subscription-expired', data);
     this.logger.log(`Subscription expired for user ${userId}`);
+  }
+
+  // ==================== Notification Events ====================
+
+  // Send new notification to user
+  sendNotification(userId: string, notification: {
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    data?: Record<string, unknown>;
+    createdAt: Date;
+  }) {
+    this.server.to(`user:${userId}`).emit('notification:new', notification);
+    this.logger.debug(`New notification sent to user ${userId}: ${notification.type}`);
+  }
+
+  // Send updated unread count to user
+  sendNotificationCount(userId: string, count: number) {
+    this.server.to(`user:${userId}`).emit('notification:count', { unreadCount: count });
+    this.logger.debug(`Notification count updated for user ${userId}: ${count}`);
+  }
+
+  // Send notification read status update
+  sendNotificationRead(userId: string, data: {
+    notificationId?: string;
+    allRead?: boolean;
+    unreadCount: number;
+  }) {
+    this.server.to(`user:${userId}`).emit('notification:read', data);
   }
 }
