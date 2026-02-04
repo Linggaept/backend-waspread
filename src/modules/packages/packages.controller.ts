@@ -88,4 +88,14 @@ export class PackagesController {
   toggleActive(@Param('id', ParseUUIDPipe) id: string) {
     return this.packagesService.toggleActive(id);
   }
+
+  @Patch(':id/toggle-purchasable')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Toggle package purchasable status (Admin)' })
+  @ApiResponse({ status: 200, description: 'Package purchasable status toggled' })
+  togglePurchasable(@Param('id', ParseUUIDPipe) id: string) {
+    return this.packagesService.togglePurchasable(id);
+  }
 }

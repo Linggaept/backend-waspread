@@ -32,6 +32,9 @@ export class Package {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: true })
+  isPurchasable: boolean;
+
   @Column({ default: 0 })
   sortOrder: number;
 

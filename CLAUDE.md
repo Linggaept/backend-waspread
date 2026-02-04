@@ -79,12 +79,13 @@ npm run docker:logs             # Follow logs
 6. Real-time progress updates via WebSocket every 5 messages
 
 **WhatsApp Session**:
-- One session per user enforced
+- One session per user enforced, max concurrent sessions configurable via `MAX_WA_SESSIONS`
 - Uses whatsapp-web.js (Puppeteer-based, unofficial API)
 - Session persistence in `.wwebjs_auth/` directory
-- WebSocket gateway (`whatsapp.gateway.ts`) emits: `qr`, `ready`, `disconnected`, `blast-started`, `blast-progress`, `blast-completed`
-- Media caching for optimized image sending
+- Auto-disconnect idle sessions after `WA_IDLE_TIMEOUT_MINUTES` (checked every minute)
 - Blasting status flag prevents auto-disconnect during active blasts
+- WebSocket gateway (`whatsapp.gateway.ts`) emits: `qr`, `status`, `blast-started`, `blast-progress`, `blast-completed`, `blast-reply`, `quota-warning`
+- Media caching (1 hour TTL) for optimized image sending from local or R2 URLs
 
 **Image Storage Pipeline**:
 - Images uploaded via `UploadsModule`, compressed with Sharp
@@ -106,12 +107,25 @@ Errors use `GlobalExceptionFilter` with standardized codes (BAD_REQUEST, UNAUTHO
 ## Configuration
 
 Environment variables configured via `.env` (see `.env.example`):
-- `APP_PORT` - Server port (Docker uses 2004, .env.example defaults to 3000)
+
+**Required:**
 - `DB_*` - PostgreSQL connection (use `DB_HOST=postgres` in Docker)
 - `REDIS_*` - Redis connection
-- `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication
-- `MIDTRANS_*` - Payment gateway
-- `R2_*` - Cloudflare R2 storage (optional, falls back to local)
+- `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication (expires in seconds)
+- `MIDTRANS_*` - Payment gateway credentials
+- `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS` - SMTP configuration
+
+**Optional:**
+- `APP_PORT` - Server port (Docker uses 2004, .env.example defaults to 3000)
+- `R2_*` - Cloudflare R2 storage (falls back to local `uploads/` if not set)
+- `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
+- `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
+- `PUPPETEER_EXECUTABLE_PATH` - Custom Chromium path for Docker
+
+**API Endpoints:**
+- API Base: `http://localhost:{PORT}/api`
+- Swagger Docs: `http://localhost:{PORT}/docs`
+- Health Check: `http://localhost:{PORT}/api/health`
 
 **Rate Limiting**: Global throttle via `@nestjs/throttler` (100 requests/minute default)
 

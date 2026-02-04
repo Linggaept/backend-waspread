@@ -45,6 +45,11 @@ export class CreatePackageDto {
   @IsOptional()
   isActive?: boolean;
 
+  @ApiPropertyOptional({ example: true, description: 'Can users purchase this package (false = display only)', default: true })
+  @IsBoolean()
+  @IsOptional()
+  isPurchasable?: boolean;
+
   @ApiPropertyOptional({ example: 1, description: 'Sort order', default: 0 })
   @IsNumber()
   @IsOptional()
@@ -90,6 +95,11 @@ export class UpdatePackageDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Can users purchase this package (false = display only)' })
+  @IsBoolean()
+  @IsOptional()
+  isPurchasable?: boolean;
 
   @ApiPropertyOptional({ example: 1, description: 'Sort order' })
   @IsNumber()

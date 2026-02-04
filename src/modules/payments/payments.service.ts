@@ -84,6 +84,9 @@ export class PaymentsService {
     if (!pkg.isActive) {
       throw new BadRequestException('This package is not available');
     }
+    if (!pkg.isPurchasable) {
+      throw new BadRequestException('This package is not available for purchase');
+    }
 
     // Generate unique order ID
     const orderId = `WS-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

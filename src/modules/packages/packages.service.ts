@@ -30,9 +30,15 @@ export class PackagesService implements OnModuleInit {
         monthlyQuota: 50,
         dailyLimit: 20,
         isActive: true,
+        isPurchasable: false, // Free Trial tampil tapi tidak bisa dibeli
         sortOrder: 0,
       });
       await this.packageRepository.save(pkg);
+    } else if (existing.isPurchasable !== false) {
+      // Update existing Free Trial to be non-purchasable
+      existing.isPurchasable = false;
+      await this.packageRepository.save(existing);
+      this.logger.log('Updated Free Trial package to non-purchasable');
     }
   }
 
@@ -76,6 +82,12 @@ export class PackagesService implements OnModuleInit {
   async toggleActive(id: string): Promise<Package> {
     const pkg = await this.findOne(id);
     pkg.isActive = !pkg.isActive;
+    return this.packageRepository.save(pkg);
+  }
+
+  async togglePurchasable(id: string): Promise<Package> {
+    const pkg = await this.findOne(id);
+    pkg.isPurchasable = !pkg.isPurchasable;
     return this.packageRepository.save(pkg);
   }
 }
