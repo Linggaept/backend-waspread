@@ -15,6 +15,7 @@ export interface SessionInfo {
 }
 
 export interface IncomingMessage {
+  id: { id: string }; // WhatsApp message ID
   from: string;
   fromMe: boolean;
   body: string;

@@ -288,13 +288,17 @@ export class WhatsAppService implements OnModuleDestroy {
             if (message.fromMe) return;
 
             const phoneNumber = message.from.replace('@c.us', '');
+            this.logger.log(`[Reply] Incoming message from ${phoneNumber}: "${message.body?.substring(0, 50) || '[no text]'}"`);
 
             if (this.replyHandler) {
+              this.logger.debug(`[Reply] Passing to replyHandler...`);
               await this.replyHandler.handleIncomingMessage(
                 userId,
                 phoneNumber,
                 message,
               );
+            } else {
+              this.logger.warn(`[Reply] No replyHandler registered!`);
             }
           } catch (error) {
             this.logger.error(`Error processing incoming message: ${error}`);

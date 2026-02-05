@@ -8,6 +8,7 @@ import makeWASocket, {
   proto,
   jidNormalizedUser,
   isJidUser,
+  fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as fs from 'fs';
@@ -31,6 +32,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   private ready = false;
   private config: WhatsAppClientConfig | null = null;
   private contacts: Map<string, ContactInfo> = new Map();
+  // LID to Phone number mapping (for reply detection)
+  private lidToPhone: Map<string, string> = new Map();
+  // Pending sends: messageId -> phoneNumber (to capture LID when message is sent)
+  private pendingSends: Map<string, string> = new Map();
 
   async initialize(config: WhatsAppClientConfig): Promise<void> {
     this.config = config;
@@ -42,13 +47,19 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
     const { state, saveCreds } = await useMultiFileAuthState(config.authPath);
 
+    // Fetch the latest Baileys version for protocol compatibility
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    this.logger.log(`Using WA version: ${version.join('.')}, isLatest: ${isLatest}`);
+
     this.sock = makeWASocket({
+      version,
       auth: state,
       printQRInTerminal: false,
       browser: Browsers.ubuntu('WaSpread'),
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60000,
+      syncFullHistory: false,
     });
 
     this.setupEvents(saveCreds);
@@ -94,9 +105,23 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
           // Session logged out - clear auth state and notify
           this.cleanupAuthState();
           config.onAuthFailure('Session logged out');
+          config.onDisconnected(reason);
+        } else if (
+          statusCode === DisconnectReason.restartRequired ||
+          statusCode === DisconnectReason.badSession ||
+          statusCode === 405
+        ) {
+          // These errors require reconnection - reinitialize after a short delay
+          this.logger.warn(`Reconnecting due to: ${reason} (code: ${statusCode})`);
+          setTimeout(() => {
+            this.initialize(config).catch((err) => {
+              this.logger.error(`Reconnection failed: ${err}`);
+              config.onDisconnected(`Reconnection failed: ${err}`);
+            });
+          }, 2000);
+        } else {
+          config.onDisconnected(reason);
         }
-
-        config.onDisconnected(reason);
       }
     });
 
@@ -104,8 +129,24 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       if (event.type !== 'notify') return;
 
       for (const msg of event.messages) {
+        const remoteJid = msg.key.remoteJid || '';
+        
+        // Capture LID mapping from messages we send (we know the phone number)
+        if (msg.key.fromMe && remoteJid.includes('@lid')) {
+          // For sent messages to LID, store the mapping
+          // We'll get the phone number from pendingSends map
+          const lidId = remoteJid.replace('@lid', '');
+          const phoneNumber = this.pendingSends.get(msg.key.id || '');
+          if (phoneNumber) {
+            this.lidToPhone.set(lidId, phoneNumber);
+            this.logger.debug(`Mapped LID from sent message: ${lidId} -> ${phoneNumber}`);
+            this.pendingSends.delete(msg.key.id || '');
+          }
+        }
+        
         if (msg.key.fromMe) continue;
 
+        this.logger.debug(`Incoming message from ${remoteJid}: ${msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[media/other]'}`);
         const incomingMessage = this.mapToIncomingMessage(msg);
         config.onMessage(incomingMessage);
       }
@@ -153,7 +194,19 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     const contentType = messageContent
       ? getContentType(messageContent)
       : undefined;
-    const from = msg.key.remoteJid || '';
+    let from = msg.key.remoteJid || '';
+
+    // Resolve LID to phone number if available
+    if (from.includes('@lid')) {
+      const lidId = from.replace('@lid', '');
+      const resolvedPhone = this.lidToPhone.get(lidId);
+      if (resolvedPhone) {
+        from = `${resolvedPhone}@s.whatsapp.net`;
+        this.logger.debug(`Resolved LID ${lidId} -> ${resolvedPhone}`);
+      } else {
+        this.logger.warn(`Could not resolve LID ${lidId} to phone number`);
+      }
+    }
 
     let body = '';
     if (contentType === 'conversation') {
@@ -178,6 +231,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
     const sock = this.sock;
     return {
+      id: { id: msg.key.id || '' },
       from: this.formatToWWebJS(from),
       fromMe: msg.key.fromMe || false,
       body,
@@ -226,6 +280,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     this.ready = false;
     this.sessionInfo = null;
     this.contacts.clear();
+    this.lidToPhone.clear();
+    this.pendingSends.clear();
 
     if (this.sock) {
       this.sock.ev.removeAllListeners('connection.update');
@@ -258,7 +314,16 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     if (!this.sock) throw new Error('Socket not initialized');
 
     const jid = this.formatToBaileys(chatId);
-    await this.sock.sendMessage(jid, { text: content });
+    const phoneNumber = jid.replace('@s.whatsapp.net', '');
+    
+    const result = await this.sock.sendMessage(jid, { text: content });
+    
+    // Store pending send to capture LID mapping from messages.upsert event
+    if (result?.key?.id) {
+      this.pendingSends.set(result.key.id, phoneNumber);
+    }
+    
+    this.storeLidMapping(result, jid);
   }
 
   async sendMessageWithMedia(
@@ -269,41 +334,60 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     if (!this.sock) throw new Error('Socket not initialized');
 
     const jid = this.formatToBaileys(chatId);
+    const phoneNumber = jid.replace('@s.whatsapp.net', '');
     const buffer = Buffer.from(mediaData.data, 'base64');
     const mimetype = mediaData.mimetype;
     const caption = options?.caption || '';
+    let result: any;
 
     if (options?.sendMediaAsDocument) {
-      await this.sock.sendMessage(jid, {
+      result = await this.sock.sendMessage(jid, {
         document: buffer,
         mimetype,
         fileName: mediaData.filename || 'document',
         caption,
       });
     } else if (mimetype.startsWith('image/')) {
-      await this.sock.sendMessage(jid, {
+      result = await this.sock.sendMessage(jid, {
         image: buffer,
         caption,
       });
     } else if (mimetype.startsWith('video/')) {
-      await this.sock.sendMessage(jid, {
+      result = await this.sock.sendMessage(jid, {
         video: buffer,
         caption,
       });
     } else if (mimetype.startsWith('audio/')) {
-      await this.sock.sendMessage(jid, {
+      result = await this.sock.sendMessage(jid, {
         audio: buffer,
         mimetype,
         ptt: false,
       });
     } else {
       // Fallback to document
-      await this.sock.sendMessage(jid, {
+      result = await this.sock.sendMessage(jid, {
         document: buffer,
         mimetype,
         fileName: mediaData.filename || 'file',
         caption,
       });
+    }
+
+    // Store pending send to capture LID mapping from messages.upsert event
+    if (result?.key?.id) {
+      this.pendingSends.set(result.key.id, phoneNumber);
+    }
+
+    // Store LID to phone mapping if participant LID is present
+    this.storeLidMapping(result, jid);
+  }
+
+  private storeLidMapping(result: any, jid: string): void {
+    if (result?.key?.participant && result.key.participant.includes('@lid')) {
+      const phoneNumber = jid.replace('@s.whatsapp.net', '');
+      const lidId = result.key.participant.replace('@lid', '');
+      this.lidToPhone.set(lidId, phoneNumber);
+      this.logger.debug(`Mapped LID ${lidId} -> ${phoneNumber}`);
     }
   }
 
