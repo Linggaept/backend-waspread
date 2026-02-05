@@ -21,6 +21,7 @@ import type {
   MediaData,
   SendMessageOptions,
   ContactInfo,
+  SentMessageResult,
 } from './whatsapp-client.interface';
 
 type BaileysSocket = ReturnType<typeof makeWASocket>;
@@ -166,16 +167,28 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
           }
         }
 
-        if (msg.key.fromMe) continue;
+        const mappedMessage = await this.mapToIncomingMessage(msg);
 
-        const incomingMessage = await this.mapToIncomingMessage(msg);
-        config.onMessage(incomingMessage);
+        // Fire onMessageUpsert for ALL messages (including fromMe) for chat storage
+        if (config.onMessageUpsert) {
+          try {
+            await config.onMessageUpsert(mappedMessage);
+          } catch (e) {
+            this.logger.warn(`onMessageUpsert error: ${e}`);
+          }
+        }
+
+        // Only fire onMessage for incoming (non-fromMe) messages — backward compatible
+        if (!msg.key.fromMe) {
+          config.onMessage(mappedMessage);
+        }
       }
     });
 
     sock.ev.on('messaging-history.set', (history) => {
       const contacts = history.contacts || [];
       const chats = history.chats || [];
+      const messages = history.messages || [];
 
       for (const contact of contacts) {
         this.storeContact(contact);
@@ -188,6 +201,23 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
             notify: null,
           });
         }
+      }
+
+      // Extract history messages and fire onMessageUpsert
+      if (config.onMessageUpsert && messages.length > 0) {
+        for (const msg of messages) {
+          try {
+            const mapped = this.mapToIncomingMessageSync(msg);
+            if (mapped) {
+              config.onMessageUpsert(mapped);
+            }
+          } catch (e) {
+            // Skip individual message errors during history sync
+          }
+        }
+        this.logger.log(
+          `History sync: processed ${messages.length} messages for chat storage`,
+        );
       }
 
       // Debounced save after history batch
@@ -473,6 +503,61 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     };
   }
 
+  private mapToIncomingMessageSync(
+    msg: proto.IWebMessageInfo,
+  ): IncomingMessage | null {
+    const messageContent = msg.message;
+    if (!messageContent) return null;
+
+    const contentType = getContentType(messageContent);
+    let from = msg.key?.remoteJid || '';
+
+    // Resolve LID to phone number if available
+    if (from.includes('@lid')) {
+      const lidId = from.replace('@lid', '');
+      const resolvedPhone = this.lidToPhone.get(lidId);
+      if (resolvedPhone) {
+        from = `${resolvedPhone}@s.whatsapp.net`;
+      } else {
+        return null; // Can't resolve LID, skip
+      }
+    }
+
+    let body = '';
+    if (contentType === 'conversation') {
+      body = messageContent?.conversation || '';
+    } else if (contentType === 'extendedTextMessage') {
+      body = messageContent?.extendedTextMessage?.text || '';
+    } else if (contentType === 'imageMessage') {
+      body = messageContent?.imageMessage?.caption || '';
+    } else if (contentType === 'videoMessage') {
+      body = messageContent?.videoMessage?.caption || '';
+    } else if (contentType === 'documentMessage') {
+      body = messageContent?.documentMessage?.caption || '';
+    }
+
+    const hasMedia = !!(
+      contentType === 'imageMessage' ||
+      contentType === 'videoMessage' ||
+      contentType === 'audioMessage' ||
+      contentType === 'documentMessage' ||
+      contentType === 'stickerMessage'
+    );
+
+    return {
+      id: { id: msg.key?.id || '' },
+      from: this.formatToWWebJS(from),
+      fromMe: msg.key?.fromMe || false,
+      body,
+      hasMedia,
+      type: contentType || 'unknown',
+      timestamp:
+        typeof msg.messageTimestamp === 'number'
+          ? msg.messageTimestamp
+          : Number(msg.messageTimestamp || 0),
+    };
+  }
+
   async destroy(): Promise<void> {
     this.ready = false;
     this.sessionInfo = null;
@@ -523,7 +608,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     return this.sessionInfo;
   }
 
-  async sendMessage(chatId: string, content: string): Promise<void> {
+  async sendMessage(
+    chatId: string,
+    content: string,
+  ): Promise<SentMessageResult> {
     if (!this.sock) {
       this.logger.error('Socket not initialized when trying to send message');
       throw new Error('Socket not initialized');
@@ -543,6 +631,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       }
 
       this.storeLidMapping(result, jid);
+
+      return { messageId: result?.key?.id || '' };
     } catch (error) {
       this.logger.error(`Error sending message to ${jid}: ${error}`);
       throw error;
@@ -553,7 +643,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     chatId: string,
     mediaData: MediaData,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SentMessageResult> {
     if (!this.sock) throw new Error('Socket not initialized');
 
     const jid = this.formatToBaileys(chatId);
@@ -604,6 +694,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       }
 
       this.storeLidMapping(result, jid);
+
+      return { messageId: result?.key?.id || '' };
     } catch (error) {
       this.logger.error(`Error sending media to ${jid}: ${error}`);
       throw error;

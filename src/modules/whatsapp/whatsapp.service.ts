@@ -26,6 +26,11 @@ export interface ReplyHandler {
   ): Promise<any>;
 }
 
+// Interface for chat message storage handler
+export interface MessageStoreHandler {
+  handleMessageUpsert(userId: string, message: any): Promise<void>;
+}
+
 interface ClientInstance {
   adapter: IWhatsAppClientAdapter;
   userId: string;
@@ -55,6 +60,7 @@ export class WhatsAppService implements OnModuleDestroy {
 
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private replyHandler: ReplyHandler | null = null;
+  private messageStoreHandler: MessageStoreHandler | null = null;
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -83,6 +89,11 @@ export class WhatsAppService implements OnModuleDestroy {
   setReplyHandler(handler: ReplyHandler) {
     this.replyHandler = handler;
     this.logger.log('Reply handler registered');
+  }
+
+  setMessageStoreHandler(handler: MessageStoreHandler) {
+    this.messageStoreHandler = handler;
+    this.logger.log('Message store handler registered');
   }
 
   private startIdleSessionCleanup() {
@@ -307,6 +318,18 @@ export class WhatsAppService implements OnModuleDestroy {
             this.logger.error(`Error processing incoming message: ${error}`);
           }
         },
+        onMessageUpsert: async (message) => {
+          if (this.messageStoreHandler) {
+            try {
+              await this.messageStoreHandler.handleMessageUpsert(
+                userId,
+                message,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message store handler: ${error}`);
+            }
+          }
+        },
       });
 
       return {
@@ -468,6 +491,18 @@ export class WhatsAppService implements OnModuleDestroy {
             this.logger.error(`Error processing incoming message: ${error}`);
           }
         },
+        onMessageUpsert: async (message) => {
+          if (this.messageStoreHandler) {
+            try {
+              await this.messageStoreHandler.handleMessageUpsert(
+                userId,
+                message,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message store handler: ${error}`);
+            }
+          }
+        },
       });
 
       // Request pairing code after socket is initialized
@@ -568,7 +603,7 @@ export class WhatsAppService implements OnModuleDestroy {
     userId: string,
     phoneNumber: string,
     message: string,
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; messageId?: string }> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
       throw new Error('WhatsApp session is not connected');
@@ -577,8 +612,8 @@ export class WhatsAppService implements OnModuleDestroy {
     try {
       const chatId = this.formatPhoneNumber(phoneNumber);
       this.updateActivity(userId);
-      await instance.adapter.sendMessage(chatId, message);
-      return true;
+      const result = await instance.adapter.sendMessage(chatId, message);
+      return { success: true, messageId: result.messageId };
     } catch (error: any) {
       const errorMessage = error?.message || String(error);
       this.logger.error(
@@ -594,7 +629,7 @@ export class WhatsAppService implements OnModuleDestroy {
     message: string,
     mediaPath: string,
     mediaType?: string,
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; messageId?: string }> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
       throw new Error('WhatsApp session is not connected');
@@ -623,12 +658,16 @@ export class WhatsAppService implements OnModuleDestroy {
         mediaData = await this.getCachedMedia(absolutePath);
       }
 
-      await instance.adapter.sendMessageWithMedia(chatId, mediaData, {
-        sendMediaAsDocument: mediaType === 'document',
-        caption: message,
-      });
+      const result = await instance.adapter.sendMessageWithMedia(
+        chatId,
+        mediaData,
+        {
+          sendMediaAsDocument: mediaType === 'document',
+          caption: message,
+        },
+      );
 
-      return true;
+      return { success: true, messageId: result.messageId };
     } catch (error: any) {
       this.logger.error(
         `Failed to send message with media for user ${userId}`,
@@ -641,6 +680,41 @@ export class WhatsAppService implements OnModuleDestroy {
   async isSessionReady(userId: string): Promise<boolean> {
     const instance = this.clients.get(userId);
     return instance?.isReady || false;
+  }
+
+  // Cache for resolved phone numbers (Baileys JID → canonical phone)
+  private phoneResolveCache: Map<string, string> = new Map();
+
+  async resolvePhoneNumber(
+    userId: string,
+    phone: string,
+  ): Promise<string> {
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+
+    // Check cache first
+    const cached = this.phoneResolveCache.get(cleaned);
+    if (cached) return cached;
+
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) return cleaned;
+
+    try {
+      const results = await instance.adapter.onWhatsApp([cleaned]);
+      if (results.length > 0 && results[0].exists) {
+        const resolved = results[0].jid.replace('@c.us', '');
+        this.phoneResolveCache.set(cleaned, resolved);
+        this.phoneResolveCache.set(resolved, resolved);
+        this.logger.debug(`Phone resolved: ${cleaned} → ${resolved}`);
+        return resolved;
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to resolve phone ${cleaned}: ${e}`);
+    }
+
+    return cleaned;
   }
 
   private formatPhoneNumber(phone: string): string {

@@ -8,3 +8,4 @@ export * from './blast-reply.entity';
 export * from './password-reset.entity';
 export * from './audit-log.entity';
 export * from './notification.entity';
+export * from './chat-message.entity';

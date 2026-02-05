@@ -37,10 +37,18 @@ export class WhatsAppGateway
   // Map userId to socket IDs
   private userSockets: Map<string, Set<string>> = new Map();
 
+  // Lazy-injected chat service to avoid circular dependency
+  private chatService: any = null;
+
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
   ) {}
+
+  setChatService(service: any) {
+    this.chatService = service;
+    this.logger.log('Chat service registered on gateway');
+  }
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -119,6 +127,118 @@ export class WhatsAppGateway
     }
 
     return { success: true };
+  }
+
+  // ==================== Chat Inbox Events ====================
+
+  @SubscribeMessage('chat:conversations')
+  async handleGetConversations(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string; page?: number; limit?: number; search?: string },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.getConversations(data.userId, {
+        page: data.page,
+        limit: data.limit,
+        search: data.search,
+      });
+      return result;
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  }
+
+  @SubscribeMessage('chat:history')
+  async handleGetChatHistory(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string; phoneNumber: string; page?: number; limit?: number },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.getChatHistory(data.userId, data.phoneNumber, {
+        page: data.page,
+        limit: data.limit,
+      });
+      return result;
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  }
+
+  @SubscribeMessage('chat:send')
+  async handleSendMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string; phoneNumber: string; message: string },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.sendTextMessage(
+        data.userId,
+        data.phoneNumber,
+        data.message,
+      );
+      return { success: true, data: result };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  }
+
+  @SubscribeMessage('chat:send-media')
+  async handleSendMedia(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      userId: string;
+      phoneNumber: string;
+      message?: string;
+      mediaPath: string;
+      mediaType?: string;
+    },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.sendMediaMessage(
+        data.userId,
+        data.phoneNumber,
+        data.message || '',
+        data.mediaPath,
+        data.mediaType,
+      );
+      return { success: true, data: result };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  }
+
+  @SubscribeMessage('chat:mark-read')
+  async handleMarkRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string; phoneNumber: string },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.markConversationAsRead(
+        data.userId,
+        data.phoneNumber,
+      );
+      return { success: true, ...result };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  }
+
+  @SubscribeMessage('chat:unread-count')
+  async handleUnreadCount(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    if (!this.chatService) return { error: 'Chat service not available' };
+    try {
+      const result = await this.chatService.getUnreadCount(data.userId);
+      return result;
+    } catch (error: any) {
+      return { error: error.message };
+    }
   }
 
   // Send QR code to specific user

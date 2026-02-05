@@ -1,0 +1,83 @@
+import {
+  IsString,
+  IsOptional,
+  IsNotEmpty,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export class ConversationQueryDto {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  @ApiPropertyOptional({ description: 'Search by phone number or message body' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class ChatHistoryQueryDto {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number = 50;
+}
+
+export class ChatSendMessageDto {
+  @ApiProperty({ description: 'Recipient phone number (e.g. 628123456789)' })
+  @IsString()
+  @IsNotEmpty()
+  phoneNumber: string;
+
+  @ApiProperty({ description: 'Message text' })
+  @IsString()
+  @IsNotEmpty()
+  message: string;
+}
+
+export class ChatSendMediaDto {
+  @ApiProperty({ description: 'Recipient phone number (e.g. 628123456789)' })
+  @IsString()
+  @IsNotEmpty()
+  phoneNumber: string;
+
+  @ApiPropertyOptional({ description: 'Message caption' })
+  @IsOptional()
+  @IsString()
+  message?: string;
+
+  @ApiProperty({ description: 'Media file path or URL' })
+  @IsString()
+  @IsNotEmpty()
+  mediaPath: string;
+
+  @ApiPropertyOptional({ description: 'Media type: image, video, audio, document' })
+  @IsOptional()
+  @IsString()
+  mediaType?: string;
+}

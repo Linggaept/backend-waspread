@@ -13,6 +13,7 @@ import { Template } from './entities/template.entity';
 import { PasswordReset } from './entities/password-reset.entity';
 import { AuditLog } from './entities/audit-log.entity';
 import { Notification } from './entities/notification.entity';
+import { ChatMessage } from './entities/chat-message.entity';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { Notification } from './entities/notification.entity';
           PasswordReset,
           AuditLog,
           Notification,
+          ChatMessage,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!

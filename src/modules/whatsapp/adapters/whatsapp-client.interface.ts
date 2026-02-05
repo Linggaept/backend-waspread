@@ -7,6 +7,7 @@ export interface WhatsAppClientConfig {
   onDisconnected: (reason: string) => void;
   onAuthFailure: (error: string) => void;
   onMessage: (message: IncomingMessage) => void;
+  onMessageUpsert?: (message: IncomingMessage) => void | Promise<void>;
 }
 
 export interface SessionInfo {
@@ -36,6 +37,10 @@ export interface SendMessageOptions {
   sendMediaAsDocument?: boolean;
 }
 
+export interface SentMessageResult {
+  messageId: string;
+}
+
 export interface ContactInfo {
   phoneNumber: string;
   name: string | null;
@@ -52,12 +57,12 @@ export interface IWhatsAppClientAdapter {
   isReady(): boolean;
   getInfo(): SessionInfo | null;
 
-  sendMessage(chatId: string, content: string): Promise<void>;
+  sendMessage(chatId: string, content: string): Promise<SentMessageResult>;
   sendMessageWithMedia(
     chatId: string,
     mediaData: MediaData,
     options?: SendMessageOptions,
-  ): Promise<void>;
+  ): Promise<SentMessageResult>;
 
   isRegisteredUser(chatId: string): Promise<boolean>;
   onWhatsApp(jids: string[]): Promise<Array<{ jid: string; exists: boolean }>>;
