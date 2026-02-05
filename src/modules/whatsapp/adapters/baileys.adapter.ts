@@ -6,15 +6,13 @@ import makeWASocket, {
   downloadMediaMessage,
   getContentType,
   proto,
-  jidNormalizedUser,
-  isPnUser,
-  isLidUser,
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 
 
 import { Boom } from '@hapi/boom';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import type {
   IWhatsAppClientAdapter,
@@ -28,6 +26,10 @@ import type {
 
 type BaileysSocket = ReturnType<typeof makeWASocket>;
 
+const PENDING_SEND_TTL_MS = 60_000;
+const SAVE_DEBOUNCE_MS = 5_000;
+const PENDING_CLEANUP_INTERVAL_MS = 30_000;
+
 export class BaileysAdapter implements IWhatsAppClientAdapter {
   private readonly logger = new Logger(BaileysAdapter.name);
   private sock: BaileysSocket | null = null;
@@ -35,26 +37,31 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   private ready = false;
   private config: WhatsAppClientConfig | null = null;
   private contacts: Map<string, ContactInfo> = new Map();
-  // LID to Phone number mapping (for reply detection)
   private lidToPhone: Map<string, string> = new Map();
-  // Pending sends: messageId -> phoneNumber (to capture LID when message is sent)
-  private pendingSends: Map<string, string> = new Map();
+  private pendingSends: Map<string, { phoneNumber: string; createdAt: number }> = new Map();
+
+  // Timers & dirty tracking
+  private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private contactsDirty = false;
+  private lidDirty = false;
+  private saving = false;
 
   async initialize(config: WhatsAppClientConfig): Promise<void> {
     this.config = config;
 
-    // Ensure auth directory exists
-    if (!fs.existsSync(config.authPath)) {
-      fs.mkdirSync(config.authPath, { recursive: true });
+    // Ensure auth directory exists (sync ok here - runs once at init before event loop is hot)
+    if (!existsSync(config.authPath)) {
+      await fs.mkdir(config.authPath, { recursive: true });
     }
 
-    // Manual Persistent Store: Load contacts
-    this.loadContacts();
+    await this.loadContacts();
+    await this.loadLidMappings();
 
-    // Auto-save contacts periodically
-    setInterval(() => {
-      this.saveContacts();
-    }, 10000);
+    // Periodic cleanup of stale pendingSends
+    this.pendingCleanupInterval = setInterval(() => {
+      this.cleanupPendingSends();
+    }, PENDING_CLEANUP_INTERVAL_MS);
 
     const { state, saveCreds } = await useMultiFileAuthState(config.authPath);
     const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -97,7 +104,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       if (connection === 'open') {
         this.ready = true;
 
-        // Extract session info from socket user
         const user = sock.user;
         if (user) {
           const phoneNumber = user.id.split(':')[0].split('@')[0];
@@ -142,27 +148,25 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
       for (const msg of event.messages) {
         const remoteJid = msg.key.remoteJid || '';
-        
+
         // Capture LID mapping from messages we send
         if (msg.key.fromMe && remoteJid.includes('@lid')) {
           const lidId = remoteJid.replace('@lid', '');
-          const phoneNumber = this.pendingSends.get(msg.key.id || '');
-          if (phoneNumber) {
-            this.lidToPhone.set(lidId, phoneNumber);
-
+          const pending = this.pendingSends.get(msg.key.id || '');
+          if (pending) {
+            this.lidToPhone.set(lidId, pending.phoneNumber);
+            this.lidDirty = true;
             this.pendingSends.delete(msg.key.id || '');
           }
         }
-        
-        if (msg.key.fromMe) continue;
 
+        if (msg.key.fromMe) continue;
 
         const incomingMessage = await this.mapToIncomingMessage(msg);
         config.onMessage(incomingMessage);
       }
     });
 
-    // Capture initial history sync (contacts often appear here)
     sock.ev.on('messaging-history.set', (history) => {
        const contacts = history.contacts || [];
        const chats = history.chats || [];
@@ -170,62 +174,62 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
        for (const contact of contacts) {
          this.storeContact(contact);
        }
-       // Also extract contacts from chats - some contacts only appear as chat JIDs
        for (const chat of chats) {
          if (chat.id && !this.contacts.has(chat.id)) {
            this.storeContact({ id: chat.id, name: chat.name || null, notify: null });
          }
        }
+
+       // Debounced save after history batch
+       this.scheduleSave();
     });
 
     sock.ev.on('contacts.upsert', (contacts) => {
-
       for (const contact of contacts) {
         this.storeContact(contact);
       }
+      this.scheduleSave();
     });
 
     sock.ev.on('contacts.update', (updates) => {
       for (const update of updates) {
         const existing = this.contacts.get(update.id!);
         if (existing) {
-          if (update.notify) existing.pushname = update.notify;
-          if ((update as any).verifiedName)
+          let changed = false;
+          if (update.notify && update.notify !== existing.pushname) {
+            existing.pushname = update.notify;
+            changed = true;
+          }
+          if ((update as any).verifiedName && (update as any).verifiedName !== existing.name) {
             existing.name = (update as any).verifiedName;
-          this.contacts.set(update.id!, existing);
+            changed = true;
+          }
+          if (changed) {
+            this.contacts.set(update.id!, existing);
+            this.contactsDirty = true;
+          }
         } else {
           this.storeContact(update as any);
         }
       }
+      if (this.contactsDirty) this.scheduleSave();
     });
 
-    // Listen for LID mapping updates from WhatsApp (Baileys v7+)
     sock.ev.on('lid-mapping.update', (mapping: { lid: string; pn: string }) => {
       const lidId = mapping.lid.replace('@lid', '');
       const phoneNumber = mapping.pn.replace('@s.whatsapp.net', '');
       this.lidToPhone.set(lidId, phoneNumber);
-
+      this.lidDirty = true;
+      this.scheduleSave();
     });
   }
 
-
-
   private storeContact(contact: any): void {
     if (!contact.id) return;
-
-    // Strict Filter for user contacts
-    // 1. Must be a standard user JID (@s.whatsapp.net)
     if (!contact.id.endsWith('@s.whatsapp.net')) return;
 
-    // 2. Extract number
     const phoneNumber = contact.id.split('@')[0];
-
-    // 3. E.164 standard max length is 15 digits. 
-    // WhatsApp LIDs or other internal IDs often exceed this or look distinct.
-    // We assume valid phone numbers are numeric and <= 15 chars.
     if (!/^\d+$/.test(phoneNumber) || phoneNumber.length > 15) return;
-
-    // 4. Filter out specific official/system accounts if needed (e.g. 0)
     if (phoneNumber === '0') return;
 
     this.contacts.set(contact.id, {
@@ -235,42 +239,111 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       isMyContact: !!contact.name || !!contact.verifiedName,
       isWAContact: true,
     });
+    this.contactsDirty = true;
   }
 
-  private loadContacts(): void {
-    try {
-      if(!this.config) return;
-      const filePath = path.join(this.config.authPath, 'contacts.json');
-      if (fs.existsSync(filePath)) {
-        const data = fs.readFileSync(filePath, 'utf-8');
-        const raw = JSON.parse(data);
-        Object.entries(raw).forEach(([key, val]) => {
-          // Re-validate loaded contacts to filter out any junk from previous bugs
-          if (!key.endsWith('@s.whatsapp.net')) return;
-          const phoneNumber = key.split('@')[0];
-          if (!/^\d+$/.test(phoneNumber) || phoneNumber.length > 15) return;
+  // --- Debounced async persistence ---
 
+  private scheduleSave(): void {
+    if (this.saveDebounceTimer) return;
+    this.saveDebounceTimer = setTimeout(() => {
+      this.saveDebounceTimer = null;
+      this.flushToDisk().catch((e) => {
+        this.logger.warn(`Failed to flush data to disk: ${e}`);
+      });
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  private async flushToDisk(): Promise<void> {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      const promises: Promise<void>[] = [];
+      if (this.contactsDirty) {
+        this.contactsDirty = false;
+        promises.push(this.saveContacts());
+      }
+      if (this.lidDirty) {
+        this.lidDirty = false;
+        promises.push(this.saveLidMappings());
+      }
+      await Promise.all(promises);
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private async loadContacts(): Promise<void> {
+    try {
+      if (!this.config) return;
+      const filePath = path.join(this.config.authPath, 'contacts.json');
+      try {
+        const data = await fs.readFile(filePath, 'utf-8');
+        const raw = JSON.parse(data);
+        for (const [key, val] of Object.entries(raw)) {
+          if (!key.endsWith('@s.whatsapp.net')) continue;
+          const phoneNumber = key.split('@')[0];
+          if (!/^\d+$/.test(phoneNumber) || phoneNumber.length > 15) continue;
           this.contacts.set(key, val as ContactInfo);
-        });
+        }
         this.logger.log(`Loaded ${this.contacts.size} contacts from file`);
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') throw e;
       }
     } catch (e) {
       this.logger.warn(`Failed to load contacts: ${e}`);
     }
   }
 
-  private saveContacts(): void {
+  private async saveContacts(): Promise<void> {
     try {
-      if(!this.config) return;
+      if (!this.config) return;
       const filePath = path.join(this.config.authPath, 'contacts.json');
       const obj = Object.fromEntries(this.contacts);
-      fs.writeFileSync(filePath, JSON.stringify(obj));
+      await fs.writeFile(filePath, JSON.stringify(obj));
     } catch (e) {
-      // ignore
+      this.logger.warn(`Failed to save contacts: ${e}`);
     }
   }
 
+  private async loadLidMappings(): Promise<void> {
+    try {
+      if (!this.config) return;
+      const filePath = path.join(this.config.authPath, 'lid-mappings.json');
+      try {
+        const data = await fs.readFile(filePath, 'utf-8');
+        const raw = JSON.parse(data) as Record<string, string>;
+        for (const [lid, phone] of Object.entries(raw)) {
+          this.lidToPhone.set(lid, phone);
+        }
+        this.logger.log(`Loaded ${this.lidToPhone.size} LID mappings from file`);
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') throw e;
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to load LID mappings: ${e}`);
+    }
+  }
 
+  private async saveLidMappings(): Promise<void> {
+    try {
+      if (!this.config) return;
+      const filePath = path.join(this.config.authPath, 'lid-mappings.json');
+      const obj = Object.fromEntries(this.lidToPhone);
+      await fs.writeFile(filePath, JSON.stringify(obj));
+    } catch (e) {
+      this.logger.warn(`Failed to save LID mappings: ${e}`);
+    }
+  }
+
+  private cleanupPendingSends(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.pendingSends) {
+      if (now - entry.createdAt > PENDING_SEND_TTL_MS) {
+        this.pendingSends.delete(id);
+      }
+    }
+  }
 
   private async mapToIncomingMessage(msg: proto.IWebMessageInfo): Promise<IncomingMessage> {
     const messageContent = msg.message;
@@ -283,8 +356,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     if (from.includes('@lid')) {
       const lidId = from.replace('@lid', '');
       let resolvedPhone = this.lidToPhone.get(lidId);
-      
-      // Fallback: use signalRepository.lidMapping.getPNForLID if in-memory cache doesn't have it
+
       if (!resolvedPhone && this.sock) {
         try {
           const signalRepo = (this.sock as any).signalRepository;
@@ -293,9 +365,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
             if (pn) {
               const resolved = pn.replace('@s.whatsapp.net', '');
               resolvedPhone = resolved;
-              // Cache for future use
               this.lidToPhone.set(lidId, resolved);
-
+              this.lidDirty = true;
+              this.scheduleSave();
             }
           }
         } catch (e) {
@@ -305,7 +377,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
       if (resolvedPhone) {
         from = `${resolvedPhone}@s.whatsapp.net`;
-
       } else {
         this.logger.warn(`Could not resolve LID ${lidId} to phone number`);
       }
@@ -348,9 +419,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         hasMedia && sock
           ? async (): Promise<MediaData | null> => {
               try {
-                // Ensure key is present for downloadMediaMessage
                 if (!msg.key) throw new Error('Message key is missing');
-                
+
                 const buffer = await downloadMediaMessage(msg as any, 'buffer', {});
                 if (!buffer) return null;
 
@@ -385,6 +455,20 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   async destroy(): Promise<void> {
     this.ready = false;
     this.sessionInfo = null;
+
+    // Clear timers to prevent leaks
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = null;
+    }
+    if (this.pendingCleanupInterval) {
+      clearInterval(this.pendingCleanupInterval);
+      this.pendingCleanupInterval = null;
+    }
+
+    // Flush pending changes before clearing data
+    await this.flushToDisk().catch(() => {});
+
     this.contacts.clear();
     this.lidToPhone.clear();
     this.pendingSends.clear();
@@ -393,6 +477,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       this.sock.ev.removeAllListeners('connection.update');
       this.sock.ev.removeAllListeners('creds.update');
       this.sock.ev.removeAllListeners('messages.upsert');
+      this.sock.ev.removeAllListeners('messaging-history.set');
       this.sock.ev.removeAllListeners('contacts.upsert');
       this.sock.ev.removeAllListeners('contacts.update');
       this.sock.ev.removeAllListeners('lid-mapping.update');
@@ -425,18 +510,14 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
     const jid = this.formatToBaileys(chatId);
     const phoneNumber = jid.replace('@s.whatsapp.net', '');
-    
-    this.logger.debug(`Sending message to ${jid} (Phone: ${phoneNumber})`);
 
     try {
       const result = await this.sock.sendMessage(jid, { text: content });
-      this.logger.debug(`Message sent to ${jid}, ID: ${result?.key?.id}`);
-      
-      // Store pending send to capture LID mapping from messages.upsert event
+
       if (result?.key?.id) {
-        this.pendingSends.set(result.key.id, phoneNumber);
+        this.pendingSends.set(result.key.id, { phoneNumber, createdAt: Date.now() });
       }
-      
+
       this.storeLidMapping(result, jid);
     } catch (error) {
       this.logger.error(`Error sending message to ${jid}: ${error}`);
@@ -457,8 +538,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     const mimetype = mediaData.mimetype;
     const caption = options?.caption || '';
     let result: any;
-
-    this.logger.debug(`Sending media to ${jid} (Type: ${mimetype})`);
 
     try {
       if (options?.sendMediaAsDocument) {
@@ -485,7 +564,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
           ptt: false,
         });
       } else {
-        // Fallback to document
         result = await this.sock.sendMessage(jid, {
           document: buffer,
           mimetype,
@@ -494,14 +572,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         });
       }
 
-      this.logger.debug(`Media sent to ${jid}, ID: ${result?.key?.id}`);
-
-      // Store pending send to capture LID mapping from messages.upsert event
       if (result?.key?.id) {
-        this.pendingSends.set(result.key.id, phoneNumber);
+        this.pendingSends.set(result.key.id, { phoneNumber, createdAt: Date.now() });
       }
 
-      // Store LID to phone mapping if participant LID is present
       this.storeLidMapping(result, jid);
     } catch (error) {
       this.logger.error(`Error sending media to ${jid}: ${error}`);
@@ -514,7 +588,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       const phoneNumber = jid.replace('@s.whatsapp.net', '');
       const lidId = result.key.participant.replace('@lid', '');
       this.lidToPhone.set(lidId, phoneNumber);
-      this.logger.debug(`Mapped LID ${lidId} -> ${phoneNumber}`);
+      this.lidDirty = true;
+      this.scheduleSave();
     }
   }
 
@@ -528,7 +603,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       const result = results[0];
       return !!result?.exists;
     } catch {
-      // If check fails, assume registered to avoid false negatives
       return true;
     }
   }
@@ -538,7 +612,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   ): Promise<Array<{ jid: string; exists: boolean }>> {
     if (!this.sock) throw new Error('Socket not initialized');
 
-    // Extract phone numbers (remove suffix)
     const numbers = jids.map((jid) =>
       jid.replace('@s.whatsapp.net', '').replace('@c.us', ''),
     );
@@ -551,19 +624,14 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     }));
   }
 
-
-
   async requestPairingCode(phoneNumber: string): Promise<string> {
     if (!this.sock) throw new Error('Socket not initialized');
 
-    // Remove any non-digit characters
     const cleaned = phoneNumber.replace(/\D/g, '');
     const code = await this.sock.requestPairingCode(cleaned);
     return code;
   }
 
-  // JID format conversion utilities
-  // whatsapp-web.js uses @c.us, Baileys uses @s.whatsapp.net
   private formatToWWebJS(jid: string): string {
     return jid.replace('@s.whatsapp.net', '@c.us');
   }
@@ -596,8 +664,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   private cleanupAuthState(): void {
     if (!this.config) return;
     try {
-      if (fs.existsSync(this.config.authPath)) {
-        fs.rmSync(this.config.authPath, { recursive: true, force: true });
+      // rmSync is acceptable here - runs only on explicit logout, not in hot path
+      if (existsSync(this.config.authPath)) {
+        const fsSync = require('fs');
+        fsSync.rmSync(this.config.authPath, { recursive: true, force: true });
         this.logger.log(`Cleaned up auth state at ${this.config.authPath}`);
       }
     } catch (e) {
