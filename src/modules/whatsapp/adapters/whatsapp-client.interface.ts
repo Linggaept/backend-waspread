@@ -59,9 +59,7 @@ export interface IWhatsAppClientAdapter {
   ): Promise<void>;
 
   isRegisteredUser(chatId: string): Promise<boolean>;
-  onWhatsApp(
-    jids: string[],
-  ): Promise<Array<{ jid: string; exists: boolean }>>;
+  onWhatsApp(jids: string[]): Promise<Array<{ jid: string; exists: boolean }>>;
 
   getContacts(): Promise<ContactInfo[]>;
 

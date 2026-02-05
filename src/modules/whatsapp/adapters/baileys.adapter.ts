@@ -122,7 +122,8 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         const existing = this.contacts.get(update.id!);
         if (existing) {
           if (update.notify) existing.pushname = update.notify;
-          if ((update as any).verifiedName) existing.name = (update as any).verifiedName;
+          if ((update as any).verifiedName)
+            existing.name = (update as any).verifiedName;
           this.contacts.set(update.id!, existing);
         } else {
           this.storeContact(update as any);
@@ -149,7 +150,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
   private mapToIncomingMessage(msg: proto.IWebMessageInfo): IncomingMessage {
     const messageContent = msg.message;
-    const contentType = messageContent ? getContentType(messageContent) : undefined;
+    const contentType = messageContent
+      ? getContentType(messageContent)
+      : undefined;
     const from = msg.key.remoteJid || '';
 
     let body = '';
@@ -180,35 +183,42 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       body,
       hasMedia,
       type: contentType || 'unknown',
-      timestamp: typeof msg.messageTimestamp === 'number'
-        ? msg.messageTimestamp
-        : Number(msg.messageTimestamp || 0),
-      downloadMedia: hasMedia && sock
-        ? async (): Promise<MediaData | null> => {
-            try {
-              const buffer = await downloadMediaMessage(
-                msg,
-                'buffer',
-                {},
-              );
-              if (!buffer) return null;
+      timestamp:
+        typeof msg.messageTimestamp === 'number'
+          ? msg.messageTimestamp
+          : Number(msg.messageTimestamp || 0),
+      downloadMedia:
+        hasMedia && sock
+          ? async (): Promise<MediaData | null> => {
+              try {
+                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                if (!buffer) return null;
 
-              let mimetype = 'application/octet-stream';
-              if (contentType === 'imageMessage') mimetype = messageContent?.imageMessage?.mimetype || 'image/jpeg';
-              else if (contentType === 'videoMessage') mimetype = messageContent?.videoMessage?.mimetype || 'video/mp4';
-              else if (contentType === 'audioMessage') mimetype = messageContent?.audioMessage?.mimetype || 'audio/ogg';
-              else if (contentType === 'documentMessage') mimetype = messageContent?.documentMessage?.mimetype || 'application/octet-stream';
+                let mimetype = 'application/octet-stream';
+                if (contentType === 'imageMessage')
+                  mimetype =
+                    messageContent?.imageMessage?.mimetype || 'image/jpeg';
+                else if (contentType === 'videoMessage')
+                  mimetype =
+                    messageContent?.videoMessage?.mimetype || 'video/mp4';
+                else if (contentType === 'audioMessage')
+                  mimetype =
+                    messageContent?.audioMessage?.mimetype || 'audio/ogg';
+                else if (contentType === 'documentMessage')
+                  mimetype =
+                    messageContent?.documentMessage?.mimetype ||
+                    'application/octet-stream';
 
-              return {
-                mimetype,
-                data: (buffer as Buffer).toString('base64'),
-                filename: (messageContent as any)?.[contentType!]?.fileName,
-              };
-            } catch (error) {
-              return null;
+                return {
+                  mimetype,
+                  data: buffer.toString('base64'),
+                  filename: (messageContent as any)?.[contentType]?.fileName,
+                };
+              } catch (error) {
+                return null;
+              }
             }
-          }
-        : undefined,
+          : undefined,
     };
   }
 
@@ -303,7 +313,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     try {
       const jid = this.formatToBaileys(chatId);
       const number = jid.replace('@s.whatsapp.net', '');
-      const results = await this.sock.onWhatsApp(number) || [];
+      const results = (await this.sock.onWhatsApp(number)) || [];
       const result = results[0];
       return !!result?.exists;
     } catch {
@@ -322,7 +332,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       jid.replace('@s.whatsapp.net', '').replace('@c.us', ''),
     );
 
-    const results = await this.sock.onWhatsApp(...numbers) || [];
+    const results = (await this.sock.onWhatsApp(...numbers)) || [];
 
     return results.map((r) => ({
       jid: this.formatToWWebJS(r.jid),

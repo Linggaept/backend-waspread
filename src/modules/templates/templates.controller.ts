@@ -47,7 +47,8 @@ export class TemplatesController {
   @UseInterceptors(FileInterceptor('mediaFile'))
   @ApiOperation({
     summary: 'Create a new template',
-    description: 'Create a blast message template. Optionally include media (image, video, audio, or document).',
+    description:
+      'Create a blast message template. Optionally include media (image, video, audio, or document).',
   })
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
@@ -73,12 +74,17 @@ export class TemplatesController {
         mediaFile: {
           type: 'string',
           format: 'binary',
-          description: 'Optional media attachment (image, video, audio, document)',
+          description:
+            'Optional media attachment (image, video, audio, document)',
         },
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'Template created', type: TemplateResponseDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Template created',
+    type: TemplateResponseDto,
+  })
   async create(
     @CurrentUser('id') userId: string,
     @Body() createTemplateDto: CreateTemplateDto,
@@ -98,7 +104,12 @@ export class TemplatesController {
         );
       }
 
-      return this.templatesService.create(userId, createTemplateDto, mediaUrl, mediaType);
+      return this.templatesService.create(
+        userId,
+        createTemplateDto,
+        mediaUrl,
+        mediaType,
+      );
     } catch (error) {
       // Cleanup on error
       if (mediaFile?.path) {
@@ -120,24 +131,39 @@ export class TemplatesController {
 
   @Get('categories')
   @ApiOperation({ summary: 'Get all template categories' })
-  @ApiResponse({ status: 200, description: 'List of categories', type: [String] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of categories',
+    type: [String],
+  })
   getCategories(@CurrentUser('id') userId: string) {
     return this.templatesService.getCategories(userId);
   }
 
   @Get('popular')
   @ApiOperation({ summary: 'Get most used templates' })
-  @ApiResponse({ status: 200, description: 'Popular templates', type: [TemplateResponseDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'Popular templates',
+    type: [TemplateResponseDto],
+  })
   getPopular(
     @CurrentUser('id') userId: string,
     @Query('limit') limit?: string,
   ) {
-    return this.templatesService.getPopularTemplates(userId, parseInt(limit || '5'));
+    return this.templatesService.getPopularTemplates(
+      userId,
+      parseInt(limit || '5'),
+    );
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get template by ID' })
-  @ApiResponse({ status: 200, description: 'Template details', type: TemplateResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Template details',
+    type: TemplateResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Template not found' })
   findOne(
     @CurrentUser('id') userId: string,
@@ -149,7 +175,8 @@ export class TemplatesController {
   @Post(':id/use')
   @ApiOperation({
     summary: 'Use template (get rendered message for blast)',
-    description: 'Returns the rendered message with variables replaced. Also increments usage count.',
+    description:
+      'Returns the rendered message with variables replaced. Also increments usage count.',
   })
   @ApiBody({
     schema: {
@@ -171,7 +198,10 @@ export class TemplatesController {
       properties: {
         message: { type: 'string' },
         mediaUrl: { type: 'string' },
-        mediaType: { type: 'string', enum: ['image', 'video', 'audio', 'document'] },
+        mediaType: {
+          type: 'string',
+          enum: ['image', 'video', 'audio', 'document'],
+        },
       },
     },
   })
@@ -180,14 +210,22 @@ export class TemplatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body('variableValues') variableValues?: Record<string, string>,
   ) {
-    return this.templatesService.getTemplateForBlast(userId, id, variableValues);
+    return this.templatesService.getTemplateForBlast(
+      userId,
+      id,
+      variableValues,
+    );
   }
 
   @Put(':id')
   @UseInterceptors(FileInterceptor('mediaFile'))
   @ApiOperation({ summary: 'Update template' })
   @ApiConsumes('multipart/form-data', 'application/json')
-  @ApiResponse({ status: 200, description: 'Template updated', type: TemplateResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Template updated',
+    type: TemplateResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Template not found' })
   async update(
     @CurrentUser('id') userId: string,
@@ -209,7 +247,13 @@ export class TemplatesController {
         );
       }
 
-      return this.templatesService.update(userId, id, updateTemplateDto, mediaUrl, mediaType);
+      return this.templatesService.update(
+        userId,
+        id,
+        updateTemplateDto,
+        mediaUrl,
+        mediaType,
+      );
     } catch (error) {
       if (mediaFile?.path) {
         this.uploadsService.cleanupTempFile(mediaFile.path);
@@ -235,7 +279,11 @@ export class TemplatesController {
 
   @Delete(':id/media')
   @ApiOperation({ summary: 'Remove media from template' })
-  @ApiResponse({ status: 200, description: 'Media removed', type: TemplateResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Media removed',
+    type: TemplateResponseDto,
+  })
   removeMedia(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,

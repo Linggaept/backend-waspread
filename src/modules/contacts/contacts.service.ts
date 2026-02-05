@@ -23,7 +23,10 @@ export class ContactsService {
     private readonly contactRepository: Repository<Contact>,
   ) {}
 
-  async create(userId: string, createContactDto: CreateContactDto): Promise<Contact> {
+  async create(
+    userId: string,
+    createContactDto: CreateContactDto,
+  ): Promise<Contact> {
     const phoneNumber = this.formatPhoneNumber(createContactDto.phoneNumber);
 
     // Check for duplicate
@@ -32,7 +35,9 @@ export class ContactsService {
     });
 
     if (existing) {
-      throw new ConflictException(`Contact with phone number ${phoneNumber} already exists`);
+      throw new ConflictException(
+        `Contact with phone number ${phoneNumber} already exists`,
+      );
     }
 
     const contact = this.contactRepository.create({
@@ -121,7 +126,9 @@ export class ContactsService {
     }
 
     if (query.tag) {
-      qb.andWhere('contact.tags @> :tags', { tags: JSON.stringify([query.tag]) });
+      qb.andWhere('contact.tags @> :tags', {
+        tags: JSON.stringify([query.tag]),
+      });
     }
 
     if (query.source) {
@@ -129,7 +136,9 @@ export class ContactsService {
     }
 
     if (query.isWaContact !== undefined) {
-      qb.andWhere('contact.isWaContact = :isWaContact', { isWaContact: query.isWaContact });
+      qb.andWhere('contact.isWaContact = :isWaContact', {
+        isWaContact: query.isWaContact,
+      });
     }
 
     if (query.isActive !== undefined) {
@@ -156,7 +165,10 @@ export class ContactsService {
     return contact;
   }
 
-  async findByPhoneNumber(userId: string, phoneNumber: string): Promise<Contact | null> {
+  async findByPhoneNumber(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<Contact | null> {
     const formatted = this.formatPhoneNumber(phoneNumber);
     return this.contactRepository.findOne({
       where: { userId, phoneNumber: formatted },
@@ -179,7 +191,9 @@ export class ContactsService {
       });
 
       if (existing && existing.id !== id) {
-        throw new ConflictException(`Contact with phone number ${newPhone} already exists`);
+        throw new ConflictException(
+          `Contact with phone number ${newPhone} already exists`,
+        );
       }
 
       updateContactDto.phoneNumber = newPhone;
@@ -194,7 +208,10 @@ export class ContactsService {
     await this.contactRepository.remove(contact);
   }
 
-  async bulkRemove(userId: string, ids: string[]): Promise<{ deleted: number }> {
+  async bulkRemove(
+    userId: string,
+    ids: string[],
+  ): Promise<{ deleted: number }> {
     const result = await this.contactRepository
       .createQueryBuilder()
       .delete()
@@ -205,7 +222,10 @@ export class ContactsService {
     return { deleted: result.affected || 0 };
   }
 
-  async getAllPhoneNumbers(userId: string, activeOnly = true): Promise<string[]> {
+  async getAllPhoneNumbers(
+    userId: string,
+    activeOnly = true,
+  ): Promise<string[]> {
     const qb = this.contactRepository
       .createQueryBuilder('contact')
       .select('contact.phoneNumber')
@@ -234,7 +254,10 @@ export class ContactsService {
   /**
    * Get phone numbers by source (whatsapp, manual, import)
    */
-  async getPhoneNumbersBySource(userId: string, source: string): Promise<string[]> {
+  async getPhoneNumbersBySource(
+    userId: string,
+    source: string,
+  ): Promise<string[]> {
     const contacts = await this.contactRepository.find({
       where: { userId, source, isActive: true },
       select: ['phoneNumber'],
@@ -246,7 +269,10 @@ export class ContactsService {
   /**
    * Get phone numbers by contact IDs
    */
-  async getPhoneNumbersByIds(userId: string, contactIds: string[]): Promise<string[]> {
+  async getPhoneNumbersByIds(
+    userId: string,
+    contactIds: string[],
+  ): Promise<string[]> {
     const contacts = await this.contactRepository
       .createQueryBuilder('contact')
       .select('contact.phoneNumber')
@@ -288,7 +314,9 @@ export class ContactsService {
       .andWhere('contact.isActive = true');
 
     if (filter.tag) {
-      qb.andWhere('contact.tags @> :tags', { tags: JSON.stringify([filter.tag]) });
+      qb.andWhere('contact.tags @> :tags', {
+        tags: JSON.stringify([filter.tag]),
+      });
     }
 
     if (filter.source) {
@@ -390,7 +418,8 @@ export class ContactsService {
         if (existing) {
           if (updateExisting) {
             // Update info dari WhatsApp
-            existing.waName = waContact.pushname || waContact.name || existing.waName;
+            existing.waName =
+              waContact.pushname || waContact.name || existing.waName;
             existing.isWaContact = waContact.isWAContact;
             existing.lastSyncedAt = new Date();
 
@@ -428,7 +457,9 @@ export class ContactsService {
           imported++;
         }
       } catch (error) {
-        this.logger.error(`Failed to sync contact ${waContact.phoneNumber}: ${error}`);
+        this.logger.error(
+          `Failed to sync contact ${waContact.phoneNumber}: ${error}`,
+        );
         skipped++;
       }
     }

@@ -1,7 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan } from 'typeorm';
-import { Subscription, SubscriptionStatus } from '../../database/entities/subscription.entity';
+import {
+  Subscription,
+  SubscriptionStatus,
+} from '../../database/entities/subscription.entity';
 import { User } from '../../database/entities/user.entity';
 import { Package } from '../../database/entities/package.entity';
 import { PackagesService } from '../packages/packages.service';
@@ -57,18 +65,27 @@ export class SubscriptionsService {
     });
 
     await this.subscriptionRepository.save(subscription);
-    this.logger.log(`Subscription activated for user ${userId}, package ${pkg.name}`);
+    this.logger.log(
+      `Subscription activated for user ${userId}, package ${pkg.name}`,
+    );
 
     // Send notification
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (user) {
-      this.notificationsService.notifySubscriptionActivated(
-        userId,
-        user.email,
-        pkg.name,
-        pkg.monthlyQuota,
-        endDate.toLocaleDateString('id-ID'),
-      ).catch(err => this.logger.error('Failed to send subscription activated notification:', err));
+      this.notificationsService
+        .notifySubscriptionActivated(
+          userId,
+          user.email,
+          pkg.name,
+          pkg.monthlyQuota,
+          endDate.toLocaleDateString('id-ID'),
+        )
+        .catch((err) =>
+          this.logger.error(
+            'Failed to send subscription activated notification:',
+            err,
+          ),
+        );
     }
 
     return subscription;
@@ -103,8 +120,14 @@ export class SubscriptionsService {
       // Send notification via NotificationsService
       const user = await this.userRepository.findOne({ where: { id: userId } });
       if (user) {
-        this.notificationsService.notifySubscriptionExpired(userId, user.email)
-          .catch(err => this.logger.error('Failed to send subscription expired notification:', err));
+        this.notificationsService
+          .notifySubscriptionExpired(userId, user.email)
+          .catch((err) =>
+            this.logger.error(
+              'Failed to send subscription expired notification:',
+              err,
+            ),
+          );
       }
 
       return null;
@@ -191,8 +214,14 @@ export class SubscriptionsService {
       // Send in-app + email notification for depleted quota
       const user = await this.userRepository.findOne({ where: { id: userId } });
       if (user) {
-        this.notificationsService.notifyQuotaDepleted(userId, user.email)
-          .catch(err => this.logger.error('Failed to send quota depleted notification:', err));
+        this.notificationsService
+          .notifyQuotaDepleted(userId, user.email)
+          .catch((err) =>
+            this.logger.error(
+              'Failed to send quota depleted notification:',
+              err,
+            ),
+          );
       }
     } else if (percentageRemaining <= 5) {
       this.whatsappGateway.sendQuotaWarning(userId, {
@@ -207,8 +236,11 @@ export class SubscriptionsService {
         warningType: 'low',
       });
       // Send in-app notification for low quota (20%)
-      this.notificationsService.notifyQuotaLow(userId, remainingQuota, pkg.monthlyQuota)
-        .catch(err => this.logger.error('Failed to send quota low notification:', err));
+      this.notificationsService
+        .notifyQuotaLow(userId, remainingQuota, pkg.monthlyQuota)
+        .catch((err) =>
+          this.logger.error('Failed to send quota low notification:', err),
+        );
     }
   }
 
@@ -220,8 +252,17 @@ export class SubscriptionsService {
     });
   }
 
-  async findAll(query?: SubscriptionQueryDto): Promise<{ data: Subscription[]; total: number }> {
-    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+  async findAll(
+    query?: SubscriptionQueryDto,
+  ): Promise<{ data: Subscription[]; total: number }> {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = query || {};
 
     const qb = this.subscriptionRepository.createQueryBuilder('subscription');
     qb.leftJoinAndSelect('subscription.package', 'package');

@@ -9,7 +9,13 @@ import {
   Header,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProduces } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiProduces,
+} from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import {
   DateRangeDto,
@@ -34,14 +40,22 @@ export class ReportsController {
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get user dashboard stats' })
-  @ApiResponse({ status: 200, description: 'Dashboard stats', type: DashboardStatsDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Dashboard stats',
+    type: DashboardStatsDto,
+  })
   getDashboard(@CurrentUser('id') userId: string) {
     return this.reportsService.getDashboardStats(userId);
   }
 
   @Get('blasts')
   @ApiOperation({ summary: 'Get blast reports with date filter' })
-  @ApiResponse({ status: 200, description: 'List of blast reports', type: [BlastReportDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of blast reports',
+    type: [BlastReportDto],
+  })
   getBlastReports(
     @CurrentUser('id') userId: string,
     @Query() dateRange: DateRangeDto,
@@ -55,7 +69,11 @@ export class ReportsController {
 
   @Get('blasts/:id/messages')
   @ApiOperation({ summary: 'Get message details for a blast' })
-  @ApiResponse({ status: 200, description: 'List of message details', type: [MessageReportDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of message details',
+    type: [MessageReportDto],
+  })
   getMessageReport(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -74,7 +92,10 @@ export class ReportsController {
     @Res() res: Response,
   ) {
     const csv = await this.reportsService.exportBlastToCsv(userId, id);
-    res.setHeader('Content-Disposition', `attachment; filename=blast-${id}.csv`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=blast-${id}.csv`,
+    );
     res.send(csv);
   }
 
@@ -105,7 +126,11 @@ export class ReportsController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get user activity reports' })
-  @ApiResponse({ status: 200, description: 'User activity reports', type: [AdminUserReportDto] })
+  @ApiResponse({
+    status: 200,
+    description: 'User activity reports',
+    type: [AdminUserReportDto],
+  })
   getUserReports() {
     return this.reportsService.getAdminUserReports();
   }
@@ -114,7 +139,11 @@ export class ReportsController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get revenue report' })
-  @ApiResponse({ status: 200, description: 'Revenue report', type: RevenueReportDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Revenue report',
+    type: RevenueReportDto,
+  })
   getRevenueReport(@Query() dateRange: DateRangeDto) {
     return this.reportsService.getRevenueReport(
       dateRange.startDate,

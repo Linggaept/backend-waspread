@@ -93,9 +93,17 @@ export class UploadsService {
       let headerValues: string[] = [];
 
       if (Array.isArray(firstRow.values)) {
-        headerValues = (firstRow.values as any[]).slice(1).map(v => String(v || '').toLowerCase().trim());
+        headerValues = (firstRow.values as any[]).slice(1).map((v) =>
+          String(v || '')
+            .toLowerCase()
+            .trim(),
+        );
       } else if (typeof firstRow.values === 'object') {
-        headerValues = Object.values(firstRow.values).map(v => String(v || '').toLowerCase().trim());
+        headerValues = Object.values(firstRow.values).map((v) =>
+          String(v || '')
+            .toLowerCase()
+            .trim(),
+        );
       }
 
       const hasHeader = this.isHeaderRow(headerValues);
@@ -126,9 +134,7 @@ export class UploadsService {
       });
 
       if (phoneNumbers.length === 0) {
-        throw new BadRequestException(
-          'No valid phone numbers found in file.',
-        );
+        throw new BadRequestException('No valid phone numbers found in file.');
       }
 
       this.logger.log(
@@ -197,7 +203,8 @@ export class UploadsService {
 
     return headerKeywords.some(
       (keyword) =>
-        firstCell.includes(keyword) || isNaN(Number(firstCell.replace(/\D/g, ''))),
+        firstCell.includes(keyword) ||
+        isNaN(Number(firstCell.replace(/\D/g, ''))),
     );
   }
 
@@ -245,7 +252,9 @@ export class UploadsService {
    * Validate media file (image, video, audio, document)
    * Returns the media type category
    */
-  validateMediaFile(file: Express.Multer.File): 'image' | 'video' | 'audio' | 'document' {
+  validateMediaFile(
+    file: Express.Multer.File,
+  ): 'image' | 'video' | 'audio' | 'document' {
     if (!file) {
       throw new BadRequestException('No media file provided');
     }
@@ -279,7 +288,9 @@ export class UploadsService {
   /**
    * Get media type from mimetype
    */
-  getMediaType(mimetype: string): 'image' | 'video' | 'audio' | 'document' | null {
+  getMediaType(
+    mimetype: string,
+  ): 'image' | 'video' | 'audio' | 'document' | null {
     for (const [type, mimetypes] of Object.entries(this.ALLOWED_MEDIA_TYPES)) {
       if (mimetypes.includes(mimetype)) {
         return type as 'image' | 'video' | 'audio' | 'document';
@@ -314,7 +325,10 @@ export class UploadsService {
     originalName?: string,
   ): Promise<string> {
     // If R2 is enabled and this is an image, compress and upload to R2
-    if ((subFolder === 'images' || subFolder === 'media') && this.storageService.isR2Enabled()) {
+    if (
+      (subFolder === 'images' || subFolder === 'media') &&
+      this.storageService.isR2Enabled()
+    ) {
       try {
         const result = await this.storageService.compressAndUpload(
           tempPath,
@@ -324,7 +338,9 @@ export class UploadsService {
         this.cleanupTempFile(tempPath);
         return result.url;
       } catch (error) {
-        this.logger.error(`Failed to upload to R2, falling back to local: ${error}`);
+        this.logger.error(
+          `Failed to upload to R2, falling back to local: ${error}`,
+        );
         // Fall through to local storage
       }
     }

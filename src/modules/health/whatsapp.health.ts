@@ -7,7 +7,10 @@ import {
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WhatsAppSession, SessionStatus } from '../../database/entities/whatsapp-session.entity';
+import {
+  WhatsAppSession,
+  SessionStatus,
+} from '../../database/entities/whatsapp-session.entity';
 
 @Injectable()
 export class WhatsAppHealthIndicator extends HealthIndicator {

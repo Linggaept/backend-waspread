@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AuditLog, AuditAction } from '../../database/entities/audit-log.entity';
+import {
+  AuditLog,
+  AuditAction,
+} from '../../database/entities/audit-log.entity';
 
 export interface AuditLogData {
   userId?: string;

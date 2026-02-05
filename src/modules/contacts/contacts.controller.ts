@@ -49,7 +49,11 @@ export class ContactsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new contact' })
-  @ApiResponse({ status: 201, description: 'Contact created', type: ContactResponseDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Contact created',
+    type: ContactResponseDto,
+  })
   @ApiResponse({ status: 409, description: 'Contact already exists' })
   create(
     @CurrentUser('id') userId: string,
@@ -89,7 +93,11 @@ export class ContactsController {
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'Import completed', type: ImportResultDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Import completed',
+    type: ImportResultDto,
+  })
   @ApiResponse({ status: 400, description: 'Invalid file' })
   async import(
     @CurrentUser('id') userId: string,
@@ -144,7 +152,11 @@ export class ContactsController {
 
   @Get('phone-numbers')
   @ApiOperation({ summary: 'Get all phone numbers (for blast campaigns)' })
-  @ApiResponse({ status: 200, description: 'List of phone numbers', type: [String] })
+  @ApiResponse({
+    status: 200,
+    description: 'List of phone numbers',
+    type: [String],
+  })
   getPhoneNumbers(
     @CurrentUser('id') userId: string,
     @Query('tag') tag?: string,
@@ -153,12 +165,19 @@ export class ContactsController {
     if (tag) {
       return this.contactsService.getPhoneNumbersByTag(userId, tag);
     }
-    return this.contactsService.getAllPhoneNumbers(userId, activeOnly !== 'false');
+    return this.contactsService.getAllPhoneNumbers(
+      userId,
+      activeOnly !== 'false',
+    );
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get contact by ID' })
-  @ApiResponse({ status: 200, description: 'Contact details', type: ContactResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Contact details',
+    type: ContactResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Contact not found' })
   findOne(
     @CurrentUser('id') userId: string,
@@ -169,7 +188,11 @@ export class ContactsController {
 
   @Put(':id')
   @ApiOperation({ summary: 'Update contact' })
-  @ApiResponse({ status: 200, description: 'Contact updated', type: ContactResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Contact updated',
+    type: ContactResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Contact not found' })
   update(
     @CurrentUser('id') userId: string,
@@ -240,15 +263,33 @@ export class ContactsController {
     let headers: string[] = [];
 
     if (Array.isArray(firstRowValues)) {
-      headers = (firstRowValues as any[]).slice(1).map(h => String(h || '').toLowerCase().trim());
+      headers = (firstRowValues as any[]).slice(1).map((h) =>
+        String(h || '')
+          .toLowerCase()
+          .trim(),
+      );
     } else if (typeof firstRowValues === 'object') {
-      headers = Object.values(firstRowValues).map(h => String(h || '').toLowerCase().trim());
+      headers = Object.values(firstRowValues).map((h) =>
+        String(h || '')
+          .toLowerCase()
+          .trim(),
+      );
     }
 
     // Detect columns for optional fields
-    const nameColIdx = this.findColumn(headers, ['name', 'nama', 'fullname', 'full_name']);
+    const nameColIdx = this.findColumn(headers, [
+      'name',
+      'nama',
+      'fullname',
+      'full_name',
+    ]);
     const emailColIdx = this.findColumn(headers, ['email', 'e-mail', 'mail']);
-    const notesColIdx = this.findColumn(headers, ['notes', 'note', 'catatan', 'keterangan']);
+    const notesColIdx = this.findColumn(headers, [
+      'notes',
+      'note',
+      'catatan',
+      'keterangan',
+    ]);
 
     // Check if first row looks like a header (contains known header words)
     const hasHeader = this.rowLooksLikeHeader(headers);
@@ -275,13 +316,21 @@ export class ContactsController {
 
         // Also check for name/email/notes by column index (if headers detected)
         const colIdx = colNumber - 1; // Convert to 0-based
-        if (nameColIdx !== null && colIdx === nameColIdx && !this.looksLikePhone(cellValue)) {
+        if (
+          nameColIdx !== null &&
+          colIdx === nameColIdx &&
+          !this.looksLikePhone(cellValue)
+        ) {
           nameVal = cellValue;
         }
         if (emailColIdx !== null && colIdx === emailColIdx) {
           emailVal = cellValue;
         }
-        if (notesColIdx !== null && colIdx === notesColIdx && !this.looksLikePhone(cellValue)) {
+        if (
+          notesColIdx !== null &&
+          colIdx === notesColIdx &&
+          !this.looksLikePhone(cellValue)
+        ) {
           notesVal = cellValue;
         }
       });
@@ -362,17 +411,37 @@ export class ContactsController {
    */
   private rowLooksLikeHeader(headers: string[]): boolean {
     const headerKeywords = [
-      'phone', 'phoneNumber', 'phone_number', 'nomor', 'no', 'hp',
-      'whatsapp', 'wa', 'mobile', 'telepon', 'handphone',
-      'name', 'nama', 'fullname', 'full_name',
-      'email', 'e-mail', 'mail',
-      'notes', 'note', 'catatan', 'keterangan',
+      'phone',
+      'phoneNumber',
+      'phone_number',
+      'nomor',
+      'no',
+      'hp',
+      'whatsapp',
+      'wa',
+      'mobile',
+      'telepon',
+      'handphone',
+      'name',
+      'nama',
+      'fullname',
+      'full_name',
+      'email',
+      'e-mail',
+      'mail',
+      'notes',
+      'note',
+      'catatan',
+      'keterangan',
     ];
 
-    return headers.some(h => headerKeywords.includes(h.toLowerCase()));
+    return headers.some((h) => headerKeywords.includes(h.toLowerCase()));
   }
 
-  private findColumn(headers: string[], possibleNames: string[]): number | null {
+  private findColumn(
+    headers: string[],
+    possibleNames: string[],
+  ): number | null {
     for (const name of possibleNames) {
       const index = headers.findIndex((h) => h === name.toLowerCase());
       if (index !== -1) return index;

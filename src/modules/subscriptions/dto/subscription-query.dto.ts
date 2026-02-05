@@ -35,12 +35,18 @@ export class SubscriptionQueryDto {
   @IsOptional()
   search?: string;
 
-  @ApiPropertyOptional({ enum: SubscriptionStatus, description: 'Filter by status' })
+  @ApiPropertyOptional({
+    enum: SubscriptionStatus,
+    description: 'Filter by status',
+  })
   @IsEnum(SubscriptionStatus)
   @IsOptional()
   status?: SubscriptionStatus;
 
-  @ApiPropertyOptional({ enum: SubscriptionSortBy, default: SubscriptionSortBy.CREATED_AT })
+  @ApiPropertyOptional({
+    enum: SubscriptionSortBy,
+    default: SubscriptionSortBy.CREATED_AT,
+  })
   @IsEnum(SubscriptionSortBy)
   @IsOptional()
   sortBy?: SubscriptionSortBy = SubscriptionSortBy.CREATED_AT;

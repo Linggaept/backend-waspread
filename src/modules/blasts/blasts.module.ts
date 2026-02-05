@@ -31,7 +31,12 @@ import { BlastRepliesService } from './services/blast-replies.service';
     NotificationsModule,
   ],
   controllers: [BlastsController],
-  providers: [BlastsService, BlastProcessor, ReplyDetectionService, BlastRepliesService],
+  providers: [
+    BlastsService,
+    BlastProcessor,
+    ReplyDetectionService,
+    BlastRepliesService,
+  ],
   exports: [BlastsService, ReplyDetectionService],
 })
 export class BlastsModule implements OnModuleInit {

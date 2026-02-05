@@ -26,12 +26,26 @@ import { Notification } from './entities/notification.entity';
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
-        entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, BlastReply, Contact, Template, PasswordReset, AuditLog, Notification],
+        entities: [
+          User,
+          Package,
+          Payment,
+          Subscription,
+          WhatsAppSession,
+          Blast,
+          BlastMessage,
+          BlastReply,
+          Contact,
+          Template,
+          PasswordReset,
+          AuditLog,
+          Notification,
+        ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!
         synchronize: true,
         logging: configService.get<string>('app.nodeEnv') === 'development',
-        extra:{
+        extra: {
           timezone: 'UTC',
         },
       }),

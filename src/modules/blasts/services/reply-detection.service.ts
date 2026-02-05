@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
-import { Blast, BlastMessage, MessageStatus } from '../../../database/entities/blast.entity';
+import {
+  Blast,
+  BlastMessage,
+  MessageStatus,
+} from '../../../database/entities/blast.entity';
 import { BlastReply } from '../../../database/entities/blast-reply.entity';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 
@@ -39,15 +43,24 @@ export class ReplyDetectionService {
   ): Promise<BlastReply | null> {
     try {
       // Find matching blast message within lookback period
-      const matchedMessage = await this.findMatchingBlastMessage(userId, phoneNumber);
+      const matchedMessage = await this.findMatchingBlastMessage(
+        userId,
+        phoneNumber,
+      );
 
       if (!matchedMessage) {
-        this.logger.debug(`No matching blast found for message from ${phoneNumber}`);
+        this.logger.debug(
+          `No matching blast found for message from ${phoneNumber}`,
+        );
         return null;
       }
 
       // Create the reply record
-      const reply = await this.createReply(matchedMessage, message, phoneNumber);
+      const reply = await this.createReply(
+        matchedMessage,
+        message,
+        phoneNumber,
+      );
 
       // Send real-time notification
       this.whatsappGateway.sendReplyNotification(userId, {

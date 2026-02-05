@@ -81,35 +81,41 @@ export class BlastsController {
         message: {
           type: 'string',
           example: 'Hello! Check out our new products.',
-          description: 'Message content. Required if templateId is not provided.',
+          description:
+            'Message content. Required if templateId is not provided.',
         },
         templateId: {
           type: 'string',
           example: 'template-uuid',
-          description: 'Template ID to use. If provided, message and media will be taken from template.',
+          description:
+            'Template ID to use. If provided, message and media will be taken from template.',
         },
         variableValues: {
           type: 'object',
           example: { name: 'John', product: 'Laptop' },
-          description: 'Variable values to replace in template message (JSON string for multipart).',
+          description:
+            'Variable values to replace in template message (JSON string for multipart).',
         },
         recipientSource: {
           type: 'string',
           enum: ['manual', 'from_contacts', 'file'],
           example: 'manual',
-          description: 'How to select recipients: manual (input numbers min 2), from_contacts (select from saved contacts), file (upload CSV/Excel).',
+          description:
+            'How to select recipients: manual (input numbers min 2), from_contacts (select from saved contacts), file (upload CSV/Excel).',
         },
         phoneNumbers: {
           type: 'array',
           items: { type: 'string' },
           example: ['628123456789', '628987654331'],
-          description: 'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
+          description:
+            'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
         },
         contactIds: {
           type: 'array',
           items: { type: 'string' },
           example: ['contact-uuid-1', 'contact-uuid-2'],
-          description: 'Selected contact IDs from checkbox (when recipientSource = from_contacts).',
+          description:
+            'Selected contact IDs from checkbox (when recipientSource = from_contacts).',
         },
         delayMs: {
           type: 'number',
@@ -119,12 +125,14 @@ export class BlastsController {
         phonesFile: {
           type: 'string',
           format: 'binary',
-          description: 'CSV/Excel file with phone numbers (when recipientSource = file).',
+          description:
+            'CSV/Excel file with phone numbers (when recipientSource = file).',
         },
         mediaFile: {
           type: 'string',
           format: 'binary',
-          description: 'Optional media attachment (image, video, audio, or document).',
+          description:
+            'Optional media attachment (image, video, audio, or document).',
         },
       },
     },
@@ -195,7 +203,10 @@ export class BlastsController {
 
         case 'from_contacts':
           // Get phone numbers from selected contact IDs
-          if (!createBlastDto.contactIds || createBlastDto.contactIds.length === 0) {
+          if (
+            !createBlastDto.contactIds ||
+            createBlastDto.contactIds.length === 0
+          ) {
             throw new BadRequestException(
               'contactIds is required when recipientSource is "from_contacts". Please select at least one contact.',
             );
@@ -219,7 +230,9 @@ export class BlastsController {
             );
           }
           this.uploadsService.validatePhoneFile(phonesFile);
-          const parsed = await this.uploadsService.parsePhoneNumbersFile(phonesFile.path);
+          const parsed = await this.uploadsService.parsePhoneNumbersFile(
+            phonesFile.path,
+          );
           phoneNumbers = parsed.phoneNumbers;
           this.uploadsService.cleanupTempFile(phonesFile.path);
           if (phoneNumbers.length === 0) {
@@ -250,7 +263,12 @@ export class BlastsController {
       createBlastDto.phoneNumbers = phoneNumbers;
       createBlastDto.message = message;
 
-      return this.blastsService.create(userId, createBlastDto, mediaUrl, mediaType);
+      return this.blastsService.create(
+        userId,
+        createBlastDto,
+        mediaUrl,
+        mediaType,
+      );
     } catch (error) {
       // Cleanup files on error
       this.uploadsService.cleanupFiles(
@@ -399,7 +417,10 @@ export class BlastsController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all blasts with pagination (Admin)' })
-  @ApiResponse({ status: 200, description: 'Paginated list of all system blasts' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of all system blasts',
+  })
   async findAllAdmin(@Query() query: BlastAdminQueryDto) {
     const { data, total } = await this.blastsService.findAllAdmin(query);
     return {

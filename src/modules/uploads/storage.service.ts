@@ -28,8 +28,11 @@ export class StorageService {
   constructor(private readonly configService: ConfigService) {
     const accountId = this.configService.get<string>('R2_ACCOUNT_ID');
     const accessKeyId = this.configService.get<string>('R2_ACCESS_KEY_ID');
-    const secretAccessKey = this.configService.get<string>('R2_SECRET_ACCESS_KEY');
-    this.bucket = this.configService.get<string>('R2_BUCKET_NAME') || 'waspread';
+    const secretAccessKey = this.configService.get<string>(
+      'R2_SECRET_ACCESS_KEY',
+    );
+    this.bucket =
+      this.configService.get<string>('R2_BUCKET_NAME') || 'waspread';
     this.publicUrl = this.configService.get<string>('R2_PUBLIC_URL') || '';
 
     this.isEnabled = !!(accountId && accessKeyId && secretAccessKey);
@@ -45,7 +48,9 @@ export class StorageService {
       });
       this.logger.log('Cloudflare R2 storage initialized');
     } else {
-      this.logger.warn('Cloudflare R2 not configured, falling back to local storage');
+      this.logger.warn(
+        'Cloudflare R2 not configured, falling back to local storage',
+      );
     }
   }
 
@@ -89,7 +94,7 @@ export class StorageService {
     }
 
     const buffer = await pipeline.toBuffer();
-    
+
     this.logger.debug(
       `Compressed image: ${metadata.size} bytes → ${buffer.length} bytes (${Math.round((1 - buffer.length / (metadata.size || buffer.length)) * 100)}% reduction)`,
     );
@@ -196,7 +201,7 @@ export class StorageService {
     // Convert stream to buffer
     const chunks: Buffer[] = [];
     const stream = response.Body as Readable;
-    
+
     return new Promise((resolve, reject) => {
       stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       stream.on('error', reject);

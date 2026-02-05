@@ -60,7 +60,14 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:2004', 'https://waspread.vercel.app', 'https://waspread.com', 'https://api.netadev.my.id', 'https://www.netadev.my.id'],
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:2004',
+      'https://waspread.vercel.app',
+      'https://waspread.com',
+      'https://api.netadev.my.id',
+      'https://www.netadev.my.id',
+    ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
@@ -71,7 +78,8 @@ async function bootstrap() {
   // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('WhatsApp Blasting SaaS API')
-    .setDescription(`
+    .setDescription(
+      `
 ## WhatsApp Blasting SaaS Backend API
 
 A complete API for managing WhatsApp message blasting with subscription-based pricing.
@@ -90,7 +98,8 @@ Most endpoints require JWT authentication. Use the \`/api/auth/login\` endpoint 
 \`\`\`
 Authorization: Bearer <your-token>
 \`\`\`
-    `)
+    `,
+    )
     .setVersion('1.0')
     .addBearerAuth(
       {
@@ -129,7 +138,7 @@ Authorization: Bearer <your-token>
   app.enableShutdownHooks();
 
   await app.listen(port);
-  
+
   const logger = new Logger('Bootstrap');
   logger.log(`🚀 Application is running on: http://localhost:${port}/api`);
   logger.log(`📝 Environment: ${nodeEnv}`);

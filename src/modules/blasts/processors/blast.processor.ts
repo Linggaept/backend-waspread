@@ -3,7 +3,13 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Blast, BlastStatus, BlastMessage, MessageStatus, MessageErrorType } from '../../../database/entities/blast.entity';
+import {
+  Blast,
+  BlastStatus,
+  BlastMessage,
+  MessageStatus,
+  MessageErrorType,
+} from '../../../database/entities/blast.entity';
 import { User } from '../../../database/entities/user.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
@@ -39,14 +45,26 @@ export class BlastProcessor extends WorkerHost {
   }
 
   async process(job: Job<BlastJobData>): Promise<void> {
-    const { blastId, messageId, userId, phoneNumber, message, mediaUrl, mediaType } = job.data;
+    const {
+      blastId,
+      messageId,
+      userId,
+      phoneNumber,
+      message,
+      mediaUrl,
+      mediaType,
+    } = job.data;
 
     this.logger.log(`Processing message ${messageId} for blast ${blastId}`);
 
     // Check if blast is still active
-    const blast = await this.blastRepository.findOne({ where: { id: blastId } });
+    const blast = await this.blastRepository.findOne({
+      where: { id: blastId },
+    });
     if (!blast || blast.status === BlastStatus.CANCELLED) {
-      this.logger.log(`Blast ${blastId} was cancelled, skipping message ${messageId}`);
+      this.logger.log(
+        `Blast ${blastId} was cancelled, skipping message ${messageId}`,
+      );
       await this.updateMessageStatus(messageId, MessageStatus.CANCELLED);
       return;
     }
@@ -62,29 +80,48 @@ export class BlastProcessor extends WorkerHost {
       this.whatsappService.setBlastingStatus(userId, true);
 
       // Check if number is registered on WhatsApp FIRST
-      const isRegistered = await this.whatsappService.isNumberRegistered(userId, phoneNumber);
-      
+      const isRegistered = await this.whatsappService.isNumberRegistered(
+        userId,
+        phoneNumber,
+      );
+
       if (!isRegistered) {
-        this.logger.log(`Number ${phoneNumber} is not registered on WhatsApp, skipping`);
-        
+        this.logger.log(
+          `Number ${phoneNumber} is not registered on WhatsApp, skipping`,
+        );
+
         await this.messageRepository.update(messageId, {
           status: MessageStatus.INVALID_NUMBER,
           errorType: MessageErrorType.INVALID_NUMBER,
           errorMessage: 'Number not registered on WhatsApp',
         });
-        
-        await this.blastRepository.increment({ id: blastId }, 'invalidCount', 1);
-        await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
-        
+
+        await this.blastRepository.increment(
+          { id: blastId },
+          'invalidCount',
+          1,
+        );
+        await this.blastRepository.decrement(
+          { id: blastId },
+          'pendingCount',
+          1,
+        );
+
         // Send progress update
         await this.sendProgressUpdate(blastId, userId);
         await this.checkBlastCompletion(blastId);
         return; // Skip without retry
       }
-      
+
       // Send message with or without media
       if (mediaUrl) {
-        await this.whatsappService.sendMessageWithMedia(userId, phoneNumber, message, mediaUrl, mediaType);
+        await this.whatsappService.sendMessageWithMedia(
+          userId,
+          phoneNumber,
+          message,
+          mediaUrl,
+          mediaType,
+        );
       } else {
         await this.whatsappService.sendMessage(userId, phoneNumber, message);
       }
@@ -99,7 +136,9 @@ export class BlastProcessor extends WorkerHost {
       await this.blastRepository.increment({ id: blastId }, 'sentCount', 1);
       await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
 
-      this.logger.log(`Message ${messageId} sent successfully to ${phoneNumber}`);
+      this.logger.log(
+        `Message ${messageId} sent successfully to ${phoneNumber}`,
+      );
 
       // Send progress update
       await this.sendProgressUpdate(blastId, userId);
@@ -113,7 +152,9 @@ export class BlastProcessor extends WorkerHost {
       const errorType = this.categorizeError(error);
 
       // Update retry count
-      const blastMessage = await this.messageRepository.findOne({ where: { id: messageId } });
+      const blastMessage = await this.messageRepository.findOne({
+        where: { id: messageId },
+      });
       if (blastMessage && blastMessage.retryCount < 3) {
         // Will be retried by BullMQ
         await this.messageRepository.update(messageId, {
@@ -131,7 +172,11 @@ export class BlastProcessor extends WorkerHost {
         });
 
         await this.blastRepository.increment({ id: blastId }, 'failedCount', 1);
-        await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
+        await this.blastRepository.decrement(
+          { id: blastId },
+          'pendingCount',
+          1,
+        );
 
         // Send progress update
         await this.sendProgressUpdate(blastId, userId);
@@ -143,34 +188,59 @@ export class BlastProcessor extends WorkerHost {
 
   private categorizeError(error: any): MessageErrorType {
     const msg = (error?.message || String(error)).toLowerCase();
-    
+
     if (msg.includes('not registered') || msg.includes('invalid number')) {
       return MessageErrorType.INVALID_NUMBER;
     }
-    if (msg.includes('timeout') || msg.includes('network') || msg.includes('econnrefused')) {
+    if (
+      msg.includes('timeout') ||
+      msg.includes('network') ||
+      msg.includes('econnrefused')
+    ) {
       return MessageErrorType.NETWORK_ERROR;
     }
-    if (msg.includes('session') || msg.includes('disconnected') || msg.includes('detached') || msg.includes('expired')) {
+    if (
+      msg.includes('session') ||
+      msg.includes('disconnected') ||
+      msg.includes('detached') ||
+      msg.includes('expired')
+    ) {
       return MessageErrorType.SESSION_ERROR;
     }
-    if (msg.includes('rate') || msg.includes('limit') || msg.includes('too many') || msg.includes('spam')) {
+    if (
+      msg.includes('rate') ||
+      msg.includes('limit') ||
+      msg.includes('too many') ||
+      msg.includes('spam')
+    ) {
       return MessageErrorType.RATE_LIMITED;
     }
     return MessageErrorType.UNKNOWN;
   }
 
-  private async updateMessageStatus(messageId: string, status: MessageStatus): Promise<void> {
+  private async updateMessageStatus(
+    messageId: string,
+    status: MessageStatus,
+  ): Promise<void> {
     await this.messageRepository.update(messageId, { status });
   }
 
-  private async sendProgressUpdate(blastId: string, userId: string): Promise<void> {
-    const blast = await this.blastRepository.findOne({ where: { id: blastId } });
+  private async sendProgressUpdate(
+    blastId: string,
+    userId: string,
+  ): Promise<void> {
+    const blast = await this.blastRepository.findOne({
+      where: { id: blastId },
+    });
     if (!blast) return;
 
     const processed = blast.sentCount + blast.failedCount + blast.invalidCount;
 
     // Only send update every PROGRESS_BATCH_SIZE messages or when complete
-    if (processed % this.PROGRESS_BATCH_SIZE === 0 || blast.pendingCount === 0) {
+    if (
+      processed % this.PROGRESS_BATCH_SIZE === 0 ||
+      blast.pendingCount === 0
+    ) {
       const percentage = Math.round((processed / blast.totalRecipients) * 100);
 
       this.whatsappGateway.sendBlastProgress(userId, {
@@ -186,12 +256,15 @@ export class BlastProcessor extends WorkerHost {
   }
 
   private async checkBlastCompletion(blastId: string): Promise<void> {
-    const blast = await this.blastRepository.findOne({ where: { id: blastId } });
+    const blast = await this.blastRepository.findOne({
+      where: { id: blastId },
+    });
     if (!blast) return;
 
     if (blast.pendingCount === 0 && blast.status === BlastStatus.PROCESSING) {
       // Consider failed if all messages failed or were invalid
-      const allFailed = (blast.failedCount + blast.invalidCount) === blast.totalRecipients;
+      const allFailed =
+        blast.failedCount + blast.invalidCount === blast.totalRecipients;
       const newStatus = allFailed ? BlastStatus.FAILED : BlastStatus.COMPLETED;
 
       const completedAt = new Date();
@@ -219,24 +292,40 @@ export class BlastProcessor extends WorkerHost {
       });
 
       // Send in-app + email notification
-      const user = await this.userRepository.findOne({ where: { id: blast.userId } });
+      const user = await this.userRepository.findOne({
+        where: { id: blast.userId },
+      });
       if (user) {
         if (newStatus === BlastStatus.COMPLETED) {
-          this.notificationsService.notifyBlastCompleted(
-            blast.userId,
-            user.email,
-            blast.name,
-            blast.sentCount,
-            blast.failedCount,
-            blast.invalidCount,
-          ).catch(err => this.logger.error('Failed to send blast completed notification:', err));
+          this.notificationsService
+            .notifyBlastCompleted(
+              blast.userId,
+              user.email,
+              blast.name,
+              blast.sentCount,
+              blast.failedCount,
+              blast.invalidCount,
+            )
+            .catch((err) =>
+              this.logger.error(
+                'Failed to send blast completed notification:',
+                err,
+              ),
+            );
         } else {
-          this.notificationsService.notifyBlastFailed(
-            blast.userId,
-            user.email,
-            blast.name,
-            'Semua pesan gagal terkirim',
-          ).catch(err => this.logger.error('Failed to send blast failed notification:', err));
+          this.notificationsService
+            .notifyBlastFailed(
+              blast.userId,
+              user.email,
+              blast.name,
+              'Semua pesan gagal terkirim',
+            )
+            .catch((err) =>
+              this.logger.error(
+                'Failed to send blast failed notification:',
+                err,
+              ),
+            );
         }
       }
 

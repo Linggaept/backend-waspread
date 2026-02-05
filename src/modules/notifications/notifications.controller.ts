@@ -9,7 +9,12 @@ import {
   ParseUUIDPipe,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { NotificationQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -23,7 +28,10 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: 'Get user notifications' })
-  @ApiResponse({ status: 200, description: 'List of notifications with unread count' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of notifications with unread count',
+  })
   findAll(@Request() req: any, @Query() query: NotificationQueryDto) {
     return this.notificationsService.findByUser(req.user.id, query);
   }

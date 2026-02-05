@@ -12,11 +12,16 @@ export class MidtransNotificationDto {
   @IsString()
   order_id: string;
 
-  @ApiProperty({ description: 'Transaction status (capture, settlement, pending, deny, expire, cancel)' })
+  @ApiProperty({
+    description:
+      'Transaction status (capture, settlement, pending, deny, expire, cancel)',
+  })
   @IsString()
   transaction_status: string;
 
-  @ApiPropertyOptional({ description: 'Fraud status (accept, challenge, deny)' })
+  @ApiPropertyOptional({
+    description: 'Fraud status (accept, challenge, deny)',
+  })
   @IsOptional()
   @IsString()
   fraud_status?: string;
@@ -26,7 +31,9 @@ export class MidtransNotificationDto {
   @IsString()
   transaction_id?: string;
 
-  @ApiPropertyOptional({ description: 'Payment type (credit_card, bank_transfer, etc.)' })
+  @ApiPropertyOptional({
+    description: 'Payment type (credit_card, bank_transfer, etc.)',
+  })
   @IsOptional()
   @IsString()
   payment_type?: string;

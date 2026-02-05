@@ -21,7 +21,12 @@ export class BlastRepliesService {
     userId: string,
     blastId: string,
     query: ReplyQueryDto,
-  ): Promise<{ data: BlastReply[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: BlastReply[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     // Verify blast belongs to user
     await this.verifyBlastOwnership(userId, blastId);
 
@@ -122,7 +127,12 @@ export class BlastRepliesService {
   async findUnread(
     userId: string,
     query: ReplyQueryDto,
-  ): Promise<{ data: BlastReply[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: BlastReply[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const page = query.page || 1;
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
@@ -196,7 +206,10 @@ export class BlastRepliesService {
   /**
    * Verify that a blast belongs to a user
    */
-  private async verifyBlastOwnership(userId: string, blastId: string): Promise<Blast> {
+  private async verifyBlastOwnership(
+    userId: string,
+    blastId: string,
+  ): Promise<Blast> {
     const blast = await this.blastRepository.findOne({
       where: { id: blastId, userId },
     });

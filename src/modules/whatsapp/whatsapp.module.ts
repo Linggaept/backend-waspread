@@ -19,4 +19,3 @@ import { ContactsModule } from '../contacts/contacts.module';
   exports: [WhatsAppService, WhatsAppGateway],
 })
 export class WhatsAppModule {}
-

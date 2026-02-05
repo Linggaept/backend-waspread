@@ -10,7 +10,13 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Blast, BlastMessage, Payment, Subscription, User]),
+    TypeOrmModule.forFeature([
+      Blast,
+      BlastMessage,
+      Payment,
+      Subscription,
+      User,
+    ]),
     SubscriptionsModule,
   ],
   controllers: [ReportsController],

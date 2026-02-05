@@ -9,7 +9,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { Blast, BlastStatus, BlastMessage, MessageStatus } from '../../database/entities/blast.entity';
+import {
+  Blast,
+  BlastStatus,
+  BlastMessage,
+  MessageStatus,
+} from '../../database/entities/blast.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -42,13 +47,17 @@ export class BlastsService {
     // Check WhatsApp session
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
-      throw new BadRequestException('WhatsApp session is not connected. Please connect first.');
+      throw new BadRequestException(
+        'WhatsApp session is not connected. Please connect first.',
+      );
     }
 
     // Check subscription quota
     const quotaCheck = await this.subscriptionsService.checkQuota(userId);
     if (!quotaCheck.hasSubscription) {
-      throw new ForbiddenException('No active subscription. Please subscribe first.');
+      throw new ForbiddenException(
+        'No active subscription. Please subscribe first.',
+      );
     }
 
     const phoneNumbers = createBlastDto.phoneNumbers || [];
@@ -98,7 +107,9 @@ export class BlastsService {
       await queryRunner.manager.save(messages);
       await queryRunner.commitTransaction();
 
-      this.logger.log(`Blast ${blast.id} created with ${recipientCount} recipients`);
+      this.logger.log(
+        `Blast ${blast.id} created with ${recipientCount} recipients`,
+      );
       return blast;
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -112,7 +123,9 @@ export class BlastsService {
     const blast = await this.findOne(userId, blastId);
 
     if (blast.status !== BlastStatus.PENDING) {
-      throw new BadRequestException(`Blast cannot be started. Current status: ${blast.status}`);
+      throw new BadRequestException(
+        `Blast cannot be started. Current status: ${blast.status}`,
+      );
     }
 
     // Check if user has another blast in progress
@@ -125,7 +138,7 @@ export class BlastsService {
 
     if (processingBlast) {
       throw new BadRequestException(
-        `You have a blast in progress (${processingBlast.name}). Please wait for it to complete before starting another.`
+        `You have a blast in progress (${processingBlast.name}). Please wait for it to complete before starting another.`,
       );
     }
 
@@ -190,7 +203,9 @@ export class BlastsService {
       total: blast.totalRecipients,
     });
 
-    this.logger.log(`Blast ${blastId} started with ${messages.length} messages queued`);
+    this.logger.log(
+      `Blast ${blastId} started with ${messages.length} messages queued`,
+    );
 
     return this.findOne(userId, blastId);
   }
@@ -198,8 +213,13 @@ export class BlastsService {
   async cancelBlast(userId: string, blastId: string): Promise<Blast> {
     const blast = await this.findOne(userId, blastId);
 
-    if (blast.status !== BlastStatus.PENDING && blast.status !== BlastStatus.PROCESSING) {
-      throw new BadRequestException(`Blast cannot be cancelled. Current status: ${blast.status}`);
+    if (
+      blast.status !== BlastStatus.PENDING &&
+      blast.status !== BlastStatus.PROCESSING
+    ) {
+      throw new BadRequestException(
+        `Blast cannot be cancelled. Current status: ${blast.status}`,
+      );
     }
 
     // Cancel pending/queued messages
@@ -234,7 +254,13 @@ export class BlastsService {
   async findAll(
     userId: string,
     query: BlastQueryDto,
-  ): Promise<{ data: Blast[]; total: number; page: number; limit: number; totalPages: number }> {
+  ): Promise<{
+    data: Blast[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
     const page = query.page || 1;
     const limit = query.limit || 10;
     const skip = (page - 1) * limit;
@@ -309,7 +335,10 @@ export class BlastsService {
     const result = await this.blastRepository
       .createQueryBuilder('blast')
       .select('COUNT(*)', 'totalBlasts')
-      .addSelect(`SUM(CASE WHEN blast.status = 'completed' THEN 1 ELSE 0 END)`, 'completedBlasts')
+      .addSelect(
+        `SUM(CASE WHEN blast.status = 'completed' THEN 1 ELSE 0 END)`,
+        'completedBlasts',
+      )
       .addSelect('COALESCE(SUM(blast.sentCount), 0)', 'totalMessagesSent')
       .addSelect('COALESCE(SUM(blast.failedCount), 0)', 'totalMessagesFailed')
       .where('blast.userId = :userId', { userId })
@@ -331,7 +360,14 @@ export class BlastsService {
     sortBy?: string;
     order?: 'ASC' | 'DESC';
   }): Promise<{ data: Blast[]; total: number }> {
-    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = query || {};
 
     const qb = this.blastRepository.createQueryBuilder('blast');
     qb.leftJoinAndSelect('blast.user', 'user');
@@ -341,10 +377,9 @@ export class BlastsService {
     }
 
     if (search) {
-      qb.andWhere(
-        '(blast.name ILIKE :search OR user.email ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      qb.andWhere('(blast.name ILIKE :search OR user.email ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     qb.orderBy(`blast.${sortBy}`, order);
@@ -378,4 +413,3 @@ export class BlastsService {
     return cleaned;
   }
 }
-

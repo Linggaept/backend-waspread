@@ -39,7 +39,10 @@ export class SessionQueryDto {
   @IsOptional()
   status?: SessionStatus;
 
-  @ApiPropertyOptional({ enum: SessionSortBy, default: SessionSortBy.UPDATED_AT })
+  @ApiPropertyOptional({
+    enum: SessionSortBy,
+    default: SessionSortBy.UPDATED_AT,
+  })
   @IsEnum(SessionSortBy)
   @IsOptional()
   sortBy?: SessionSortBy = SessionSortBy.UPDATED_AT;

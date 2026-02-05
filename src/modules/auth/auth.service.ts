@@ -1,10 +1,20 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { RegisterDto, LoginDto, ForgotPasswordDto, VerifyResetCodeDto, ResetPasswordDto } from './dto';
+import {
+  RegisterDto,
+  LoginDto,
+  ForgotPasswordDto,
+  VerifyResetCodeDto,
+  ResetPasswordDto,
+} from './dto';
 import { UserStatus } from '../../database/entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
@@ -15,7 +25,10 @@ import { BadRequestException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { NotificationsService } from '../notifications/notifications.service';
-import { NotificationType, NotificationChannel } from '../../database/entities/notification.entity';
+import {
+  NotificationType,
+  NotificationChannel,
+} from '../../database/entities/notification.entity';
 
 @Injectable()
 export class AuthService {
@@ -52,10 +65,14 @@ export class AuthService {
     // Auto-assign Free Trial if available
     try {
       const freePackages = await this.packagesService.findAll();
-      const freeTrial = freePackages.find(p => p.price === 0 && p.isActive);
-      
+      const freeTrial = freePackages.find((p) => p.price === 0 && p.isActive);
+
       if (freeTrial) {
-        await this.subscriptionsService.activateSubscription(user.id, freeTrial.id, null);
+        await this.subscriptionsService.activateSubscription(
+          user.id,
+          freeTrial.id,
+          null,
+        );
       }
     } catch (error) {
       console.error('Failed to assign free trial:', error);
@@ -69,9 +86,11 @@ export class AuthService {
     });
 
     // Send welcome notification
-    this.notificationsService.notifyWelcome(user.id, user.email, user.name).catch(err => {
-      console.error('Failed to send welcome notification:', err);
-    });
+    this.notificationsService
+      .notifyWelcome(user.id, user.email, user.name)
+      .catch((err) => {
+        console.error('Failed to send welcome notification:', err);
+      });
 
     return {
       accessToken: token,
@@ -103,7 +122,9 @@ export class AuthService {
 
     // Check user status
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Your account is not active. Please contact support.');
+      throw new UnauthorizedException(
+        'Your account is not active. Please contact support.',
+      );
     }
 
     // Generate token
@@ -134,10 +155,13 @@ export class AuthService {
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const user = await this.usersService.findByEmail(forgotPasswordDto.email);
-    
+
     // Always return success even if user not found (security)
     if (!user) {
-      return { message: 'If your email is registered, you will receive a reset code shortly.' };
+      return {
+        message:
+          'If your email is registered, you will receive a reset code shortly.',
+      };
     }
 
     // Generate 6 digit code
@@ -156,7 +180,10 @@ export class AuthService {
     // Send email
     await this.mailService.sendPasswordResetCode(user.email, code, user.name);
 
-    return { message: 'If your email is registered, you will receive a reset code shortly.' };
+    return {
+      message:
+        'If your email is registered, you will receive a reset code shortly.',
+    };
   }
 
   async verifyResetCode(verifyDto: VerifyResetCodeDto) {
@@ -179,7 +206,7 @@ export class AuthService {
 
     // Generate reset token
     const resetToken = uuidv4();
-    
+
     // Update request
     resetRequest.isVerified = true;
     resetRequest.resetToken = resetToken;
@@ -213,18 +240,24 @@ export class AuthService {
     await this.passwordResetRepository.save(resetRequest);
 
     // Send password changed notification
-    this.notificationsService.notify({
-      userId: resetRequest.userId,
-      type: NotificationType.PASSWORD_CHANGED,
-      title: 'Password Berhasil Diubah',
-      message: 'Password akun Anda telah berhasil diubah. Jika Anda tidak melakukan ini, segera hubungi support.',
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email: resetRequest.email,
-    }).catch(err => {
-      console.error('Failed to send password changed notification:', err);
-    });
+    this.notificationsService
+      .notify({
+        userId: resetRequest.userId,
+        type: NotificationType.PASSWORD_CHANGED,
+        title: 'Password Berhasil Diubah',
+        message:
+          'Password akun Anda telah berhasil diubah. Jika Anda tidak melakukan ini, segera hubungi support.',
+        channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
+        email: resetRequest.email,
+      })
+      .catch((err) => {
+        console.error('Failed to send password changed notification:', err);
+      });
 
-    return { message: 'Password reset successful. You can now login with your new password.' };
+    return {
+      message:
+        'Password reset successful. You can now login with your new password.',
+    };
   }
 
   private generateToken(userId: string, email: string, role: string): string {

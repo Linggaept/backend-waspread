@@ -21,7 +21,13 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } from './config';
+import {
+  databaseConfig,
+  redisConfig,
+  appConfig,
+  midtransConfig,
+  mailConfig,
+} from './config';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -29,16 +35,24 @@ import { validate } from './config/env.validation';
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig],
+      load: [
+        databaseConfig,
+        redisConfig,
+        appConfig,
+        midtransConfig,
+        mailConfig,
+      ],
       envFilePath: ['.env'],
       validate,
     }),
 
     // Rate limiting
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 100,
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
 
     // Serve static files (uploads)
     ServeStaticModule.forRoot({

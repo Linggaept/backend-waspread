@@ -8,7 +8,13 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { WhatsAppService } from './whatsapp.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,7 +36,10 @@ export class WhatsAppController {
 
   @Post('connect')
   @ApiOperation({ summary: 'Initialize/Connect WhatsApp session' })
-  @ApiResponse({ status: 201, description: 'Session initialized, returns QR code if needed' })
+  @ApiResponse({
+    status: 201,
+    description: 'Session initialized, returns QR code if needed',
+  })
   async connect(@CurrentUser('id') userId: string) {
     try {
       return await this.whatsappService.initializeSession(userId);
@@ -42,7 +51,8 @@ export class WhatsAppController {
   @Post('connect-pairing')
   @ApiOperation({
     summary: 'Connect WhatsApp session via pairing code',
-    description: 'Initialize a WhatsApp session using a pairing code instead of QR scan. Returns an 8-digit code that the user enters in WhatsApp > Linked Devices > Link with Phone Number.',
+    description:
+      'Initialize a WhatsApp session using a pairing code instead of QR scan. Returns an 8-digit code that the user enters in WhatsApp > Linked Devices > Link with Phone Number.',
   })
   @ApiResponse({
     status: 201,
@@ -61,21 +71,29 @@ export class WhatsAppController {
     @Body() dto: ConnectPairingDto,
   ) {
     try {
-      return await this.whatsappService.initializeSessionWithPairing(userId, dto.phoneNumber);
+      return await this.whatsappService.initializeSessionWithPairing(
+        userId,
+        dto.phoneNumber,
+      );
     } catch (error) {
-      throw new BadRequestException(`Failed to connect with pairing code: ${error}`);
+      throw new BadRequestException(
+        `Failed to connect with pairing code: ${error}`,
+      );
     }
   }
 
   @Post('reconnect')
-  @ApiOperation({ summary: 'Force reconnect WhatsApp session (destroys existing and creates new)' })
+  @ApiOperation({
+    summary:
+      'Force reconnect WhatsApp session (destroys existing and creates new)',
+  })
   @ApiResponse({ status: 201, description: 'Session reinitialized' })
   async reconnect(@CurrentUser('id') userId: string) {
     try {
       // Force disconnect first
       await this.whatsappService.forceDisconnect(userId);
       // Wait a moment for cleanup
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       // Then connect
       return await this.whatsappService.initializeSession(userId);
     } catch (error) {
@@ -93,12 +111,15 @@ export class WhatsAppController {
 
   @Get('status')
   @ApiOperation({ summary: 'Get session status' })
-  @ApiResponse({ status: 200, description: 'Current session status and readiness' })
+  @ApiResponse({
+    status: 200,
+    description: 'Current session status and readiness',
+  })
   async getStatus(@CurrentUser('id') userId: string) {
     const session = await this.whatsappService.getSessionStatus(userId);
     const isReady = await this.whatsappService.isSessionReady(userId);
     const stats = this.whatsappService.getSessionStats();
-    
+
     return {
       session: session || { status: 'disconnected' },
       isReady,
@@ -135,7 +156,10 @@ export class WhatsAppController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all sessions with pagination (Admin)' })
-  @ApiResponse({ status: 200, description: 'Paginated list of all user sessions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of all user sessions',
+  })
   async getAllSessions(@Query() query: SessionQueryDto) {
     const { data, total } = await this.whatsappService.getAllSessions(query);
     return {
@@ -151,7 +175,10 @@ export class WhatsAppController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get session server stats (Admin)' })
-  @ApiResponse({ status: 200, description: 'Server capacity and active sessions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Server capacity and active sessions',
+  })
   getSessionStats() {
     return this.whatsappService.getSessionStats();
   }
@@ -161,7 +188,8 @@ export class WhatsAppController {
   @Get('contacts')
   @ApiOperation({
     summary: 'Get contacts from connected WhatsApp account',
-    description: 'Fetches all contacts from the connected WhatsApp account. Use onlyMyContacts=true to filter only contacts saved in phone.',
+    description:
+      'Fetches all contacts from the connected WhatsApp account. Use onlyMyContacts=true to filter only contacts saved in phone.',
   })
   @ApiResponse({
     status: 200,
@@ -183,19 +211,30 @@ export class WhatsAppController {
           },
         },
         total: { type: 'number', example: 150 },
-        totalAll: { type: 'number', example: 200, description: 'Only present when onlyMyContacts=true' },
+        totalAll: {
+          type: 'number',
+          example: 200,
+          description: 'Only present when onlyMyContacts=true',
+        },
       },
     },
   })
   @ApiResponse({ status: 400, description: 'Session not connected' })
-  @ApiQuery({ name: 'onlyMyContacts', required: false, type: Boolean, description: 'Only return contacts saved in phone' })
+  @ApiQuery({
+    name: 'onlyMyContacts',
+    required: false,
+    type: Boolean,
+    description: 'Only return contacts saved in phone',
+  })
   async getWhatsAppContacts(
     @CurrentUser('id') userId: string,
     @Query('onlyMyContacts') onlyMyContacts?: string,
   ) {
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
-      throw new BadRequestException('WhatsApp session is not connected. Please connect first.');
+      throw new BadRequestException(
+        'WhatsApp session is not connected. Please connect first.',
+      );
     }
 
     try {
@@ -220,7 +259,8 @@ export class WhatsAppController {
   @Post('contacts/sync')
   @ApiOperation({
     summary: 'Sync WhatsApp contacts to database',
-    description: 'Syncs contacts from WhatsApp to the contacts database. New contacts will be created, existing ones can be updated.',
+    description:
+      'Syncs contacts from WhatsApp to the contacts database. New contacts will be created, existing ones can be updated.',
   })
   @ApiResponse({
     status: 201,
@@ -229,16 +269,45 @@ export class WhatsAppController {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Contacts synced successfully' },
-        imported: { type: 'number', example: 45, description: 'New contacts imported' },
-        updated: { type: 'number', example: 10, description: 'Existing contacts updated' },
-        skipped: { type: 'number', example: 5, description: 'Contacts skipped (duplicates or invalid)' },
-        total: { type: 'number', example: 60, description: 'Total contacts processed' },
+        imported: {
+          type: 'number',
+          example: 45,
+          description: 'New contacts imported',
+        },
+        updated: {
+          type: 'number',
+          example: 10,
+          description: 'Existing contacts updated',
+        },
+        skipped: {
+          type: 'number',
+          example: 5,
+          description: 'Contacts skipped (duplicates or invalid)',
+        },
+        total: {
+          type: 'number',
+          example: 60,
+          description: 'Total contacts processed',
+        },
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Session not connected or sync failed' })
-  @ApiQuery({ name: 'updateExisting', required: false, type: Boolean, description: 'Update existing contacts with WA info (default: true)' })
-  @ApiQuery({ name: 'onlyMyContacts', required: false, type: Boolean, description: 'Only sync contacts saved in phone (default: false)' })
+  @ApiResponse({
+    status: 400,
+    description: 'Session not connected or sync failed',
+  })
+  @ApiQuery({
+    name: 'updateExisting',
+    required: false,
+    type: Boolean,
+    description: 'Update existing contacts with WA info (default: true)',
+  })
+  @ApiQuery({
+    name: 'onlyMyContacts',
+    required: false,
+    type: Boolean,
+    description: 'Only sync contacts saved in phone (default: false)',
+  })
   async syncWhatsAppContacts(
     @CurrentUser('id') userId: string,
     @Query('updateExisting') updateExisting?: string,
@@ -246,18 +315,25 @@ export class WhatsAppController {
   ) {
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
-      throw new BadRequestException('WhatsApp session is not connected. Please connect first.');
+      throw new BadRequestException(
+        'WhatsApp session is not connected. Please connect first.',
+      );
     }
 
     try {
       // Get contacts from WhatsApp
-      const { contacts: waContacts } = await this.whatsappService.getWhatsAppContacts(userId);
+      const { contacts: waContacts } =
+        await this.whatsappService.getWhatsAppContacts(userId);
 
       // Sync to database
-      const result = await this.contactsService.syncFromWhatsApp(userId, waContacts, {
-        updateExisting: updateExisting !== 'false',
-        onlyMyContacts: onlyMyContacts === 'true',
-      });
+      const result = await this.contactsService.syncFromWhatsApp(
+        userId,
+        waContacts,
+        {
+          updateExisting: updateExisting !== 'false',
+          onlyMyContacts: onlyMyContacts === 'true',
+        },
+      );
 
       return {
         message: 'Contacts synced successfully',
@@ -271,7 +347,8 @@ export class WhatsAppController {
   @Post('contacts/check')
   @ApiOperation({
     summary: 'Check if phone numbers are registered on WhatsApp',
-    description: 'Checks whether the given phone numbers are registered on WhatsApp. Maximum 100 numbers per request.',
+    description:
+      'Checks whether the given phone numbers are registered on WhatsApp. Maximum 100 numbers per request.',
   })
   @ApiResponse({
     status: 200,
@@ -297,14 +374,19 @@ export class WhatsAppController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Session not connected or invalid input' })
+  @ApiResponse({
+    status: 400,
+    description: 'Session not connected or invalid input',
+  })
   async checkNumbersRegistered(
     @CurrentUser('id') userId: string,
     @Body() body: { phoneNumbers: string[] },
   ) {
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
-      throw new BadRequestException('WhatsApp session is not connected. Please connect first.');
+      throw new BadRequestException(
+        'WhatsApp session is not connected. Please connect first.',
+      );
     }
 
     if (!body.phoneNumbers || body.phoneNumbers.length === 0) {
@@ -316,7 +398,10 @@ export class WhatsAppController {
     }
 
     try {
-      const result = await this.whatsappService.checkNumbersRegistered(userId, body.phoneNumbers);
+      const result = await this.whatsappService.checkNumbersRegistered(
+        userId,
+        body.phoneNumbers,
+      );
       return {
         ...result,
         totalChecked: body.phoneNumbers.length,
@@ -328,4 +413,3 @@ export class WhatsAppController {
     }
   }
 }
-

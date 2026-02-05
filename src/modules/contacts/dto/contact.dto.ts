@@ -11,7 +11,10 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 
 export class CreateContactDto {
-  @ApiProperty({ example: '628123456789', description: 'WhatsApp phone number' })
+  @ApiProperty({
+    example: '628123456789',
+    description: 'WhatsApp phone number',
+  })
   @IsString()
   @MinLength(10)
   phoneNumber: string;
@@ -21,12 +24,18 @@ export class CreateContactDto {
   @IsOptional()
   name?: string;
 
-  @ApiPropertyOptional({ example: 'john@example.com', description: 'Email address' })
+  @ApiPropertyOptional({
+    example: 'john@example.com',
+    description: 'Email address',
+  })
   @IsEmail()
   @IsOptional()
   email?: string;
 
-  @ApiPropertyOptional({ example: 'VIP customer', description: 'Notes about the contact' })
+  @ApiPropertyOptional({
+    example: 'VIP customer',
+    description: 'Notes about the contact',
+  })
   @IsString()
   @IsOptional()
   notes?: string;
@@ -43,7 +52,10 @@ export class CreateContactDto {
       try {
         return JSON.parse(value);
       } catch {
-        return value.split(',').map((s: string) => s.trim()).filter(Boolean);
+        return value
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
       }
     }
     return value;
@@ -78,7 +90,10 @@ export class ImportContactsDto {
       try {
         return JSON.parse(value);
       } catch {
-        return value.split(',').map((s: string) => s.trim()).filter(Boolean);
+        return value
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
       }
     }
     return value;
@@ -165,7 +180,10 @@ export class ImportResultDto {
 }
 
 export class ContactQueryDto {
-  @ApiPropertyOptional({ example: 'john', description: 'Search by name or phone' })
+  @ApiPropertyOptional({
+    example: 'john',
+    description: 'Search by name or phone',
+  })
   @IsString()
   @IsOptional()
   search?: string;
@@ -184,7 +202,10 @@ export class ContactQueryDto {
   @IsOptional()
   source?: 'whatsapp' | 'manual' | 'import';
 
-  @ApiPropertyOptional({ example: true, description: 'Filter only WhatsApp verified contacts' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Filter only WhatsApp verified contacts',
+  })
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {
@@ -196,7 +217,10 @@ export class ContactQueryDto {
   })
   isWaContact?: boolean;
 
-  @ApiPropertyOptional({ example: true, description: 'Filter by active status' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Filter by active status',
+  })
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {
@@ -213,7 +237,11 @@ export class ContactQueryDto {
   @Transform(({ value }) => parseInt(value) || 1)
   page?: number;
 
-  @ApiPropertyOptional({ example: 20, description: 'Items per page', default: 20 })
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Items per page',
+    default: 20,
+  })
   @IsOptional()
   @Transform(({ value }) => Math.min(parseInt(value) || 20, 5000))
   limit?: number;

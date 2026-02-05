@@ -15,11 +15,20 @@ import { Notification } from '../../../database/entities/notification.entity';
 
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:2004', 'https://waspread.vercel.app', 'https://waspread.com', 'https://api.netadev.my.id', 'https://www.netadev.my.id'],
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:2004',
+      'https://waspread.vercel.app',
+      'https://waspread.com',
+      'https://api.netadev.my.id',
+      'https://www.netadev.my.id',
+    ],
   },
   namespace: '/whatsapp',
 })
-export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class WhatsAppGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   private readonly logger = new Logger(WhatsAppGateway.name);
 
   @WebSocketServer()
@@ -39,7 +48,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    
+
     // Remove from all user mappings
     for (const [userId, sockets] of this.userSockets) {
       sockets.delete(client.id);
@@ -84,7 +93,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     const unreadCount = await this.notificationRepository.count({
       where: { userId, isRead: false },
     });
-    
+
     client.emit('notification:count', { unreadCount });
     return { unreadCount };
   }
@@ -121,83 +130,111 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Send status update to specific user
   sendStatusUpdate(userId: string, status: Record<string, unknown>) {
     this.server.to(`user:${userId}`).emit('status', status);
-    this.logger.log(`Status update sent to user ${userId}: ${JSON.stringify(status)}`);
+    this.logger.log(
+      `Status update sent to user ${userId}: ${JSON.stringify(status)}`,
+    );
   }
 
   // Send message status update
   sendMessageStatus(userId: string, messageId: string, status: string) {
-    this.server.to(`user:${userId}`).emit('message-status', { messageId, status });
+    this.server
+      .to(`user:${userId}`)
+      .emit('message-status', { messageId, status });
   }
 
   // Send reply notification to user
-  sendReplyNotification(userId: string, reply: {
-    id: string;
-    blastId: string;
-    blastMessageId?: string;
-    phoneNumber: string;
-    messageContent: string;
-    mediaUrl?: string;
-    mediaType?: string;
-    receivedAt: Date;
-  }) {
+  sendReplyNotification(
+    userId: string,
+    reply: {
+      id: string;
+      blastId: string;
+      blastMessageId?: string;
+      phoneNumber: string;
+      messageContent: string;
+      mediaUrl?: string;
+      mediaType?: string;
+      receivedAt: Date;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('blast-reply', reply);
-    this.logger.log(`Reply notification sent to user ${userId} from ${reply.phoneNumber}`);
+    this.logger.log(
+      `Reply notification sent to user ${userId} from ${reply.phoneNumber}`,
+    );
   }
 
   // ==================== Blast Progress Events ====================
 
   // Send blast started notification
-  sendBlastStarted(userId: string, data: {
-    blastId: string;
-    name: string;
-    total: number;
-  }) {
+  sendBlastStarted(
+    userId: string,
+    data: {
+      blastId: string;
+      name: string;
+      total: number;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('blast-started', data);
     this.logger.log(`Blast started: ${data.name} (${data.total} recipients)`);
   }
 
   // Send blast progress notification
-  sendBlastProgress(userId: string, data: {
-    blastId: string;
-    sent: number;
-    failed: number;
-    invalid: number;
-    pending: number;
-    total: number;
-    percentage: number;
-  }) {
+  sendBlastProgress(
+    userId: string,
+    data: {
+      blastId: string;
+      sent: number;
+      failed: number;
+      invalid: number;
+      pending: number;
+      total: number;
+      percentage: number;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('blast-progress', data);
   }
 
   // Send blast completed notification
-  sendBlastCompleted(userId: string, data: {
-    blastId: string;
-    status: string;
-    sent: number;
-    failed: number;
-    invalid: number;
-    duration: number; // in seconds
-  }) {
+  sendBlastCompleted(
+    userId: string,
+    data: {
+      blastId: string;
+      status: string;
+      sent: number;
+      failed: number;
+      invalid: number;
+      duration: number; // in seconds
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('blast-completed', data);
-    this.logger.log(`Blast completed: ${data.blastId} - ${data.status} (${data.sent} sent, ${data.failed} failed, ${data.invalid} invalid)`);
+    this.logger.log(
+      `Blast completed: ${data.blastId} - ${data.status} (${data.sent} sent, ${data.failed} failed, ${data.invalid} invalid)`,
+    );
   }
 
   // ==================== Subscription/Quota Events ====================
 
   // Send quota warning notification
-  sendQuotaWarning(userId: string, data: {
-    remaining: number;
-    limit: number;
-    warningType: 'low' | 'critical' | 'depleted';
-  }) {
+  sendQuotaWarning(
+    userId: string,
+    data: {
+      remaining: number;
+      limit: number;
+      warningType: 'low' | 'critical' | 'depleted';
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('quota-warning', data);
-    this.logger.log(`Quota warning for user ${userId}: ${data.warningType} (${data.remaining}/${data.limit})`);
+    this.logger.log(
+      `Quota warning for user ${userId}: ${data.warningType} (${data.remaining}/${data.limit})`,
+    );
   }
 
   // Send subscription expired notification
-  sendSubscriptionExpired(userId: string, data: {
-    expiredAt: Date;
-  }) {
+  sendSubscriptionExpired(
+    userId: string,
+    data: {
+      expiredAt: Date;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('subscription-expired', data);
     this.logger.log(`Subscription expired for user ${userId}`);
   }
@@ -205,30 +242,42 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   // ==================== Notification Events ====================
 
   // Send new notification to user
-  sendNotification(userId: string, notification: {
-    id: string;
-    type: string;
-    title: string;
-    message: string;
-    data?: Record<string, unknown>;
-    createdAt: Date;
-  }) {
+  sendNotification(
+    userId: string,
+    notification: {
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      data?: Record<string, unknown>;
+      createdAt: Date;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('notification:new', notification);
-    this.logger.debug(`New notification sent to user ${userId}: ${notification.type}`);
+    this.logger.debug(
+      `New notification sent to user ${userId}: ${notification.type}`,
+    );
   }
 
   // Send updated unread count to user
   sendNotificationCount(userId: string, count: number) {
-    this.server.to(`user:${userId}`).emit('notification:count', { unreadCount: count });
-    this.logger.debug(`Notification count updated for user ${userId}: ${count}`);
+    this.server
+      .to(`user:${userId}`)
+      .emit('notification:count', { unreadCount: count });
+    this.logger.debug(
+      `Notification count updated for user ${userId}: ${count}`,
+    );
   }
 
   // Send notification read status update
-  sendNotificationRead(userId: string, data: {
-    notificationId?: string;
-    allRead?: boolean;
-    unreadCount: number;
-  }) {
+  sendNotificationRead(
+    userId: string,
+    data: {
+      notificationId?: string;
+      allRead?: boolean;
+      unreadCount: number;
+    },
+  ) {
     this.server.to(`user:${userId}`).emit('notification:read', data);
   }
 }

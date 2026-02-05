@@ -1,16 +1,8 @@
-import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Template } from '../../database/entities/template.entity';
-import {
-  CreateTemplateDto,
-  UpdateTemplateDto,
-  TemplateQueryDto,
-} from './dto';
+import { CreateTemplateDto, UpdateTemplateDto, TemplateQueryDto } from './dto';
 
 @Injectable()
 export class TemplatesService {
@@ -28,7 +20,9 @@ export class TemplatesService {
     mediaType?: string,
   ): Promise<Template> {
     // Auto-detect variables from message if not provided
-    const variables = createTemplateDto.variables || this.extractVariables(createTemplateDto.message);
+    const variables =
+      createTemplateDto.variables ||
+      this.extractVariables(createTemplateDto.message);
 
     const template = this.templateRepository.create({
       userId,
@@ -57,15 +51,21 @@ export class TemplatesService {
     qb.where('template.userId = :userId', { userId });
 
     if (query.search) {
-      qb.andWhere('template.name ILIKE :search', { search: `%${query.search}%` });
+      qb.andWhere('template.name ILIKE :search', {
+        search: `%${query.search}%`,
+      });
     }
 
     if (query.category) {
-      qb.andWhere('template.category = :category', { category: query.category });
+      qb.andWhere('template.category = :category', {
+        category: query.category,
+      });
     }
 
     if (query.isActive !== undefined) {
-      qb.andWhere('template.isActive = :isActive', { isActive: query.isActive });
+      qb.andWhere('template.isActive = :isActive', {
+        isActive: query.isActive,
+      });
     }
 
     qb.orderBy('template.updatedAt', 'DESC');
@@ -104,7 +104,9 @@ export class TemplatesService {
     if (updateTemplateDto.message !== undefined) {
       template.message = updateTemplateDto.message;
       // Re-extract variables if message changed
-      template.variables = updateTemplateDto.variables || this.extractVariables(updateTemplateDto.message);
+      template.variables =
+        updateTemplateDto.variables ||
+        this.extractVariables(updateTemplateDto.message);
     }
     if (updateTemplateDto.category !== undefined) {
       template.category = updateTemplateDto.category;

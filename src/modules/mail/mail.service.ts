@@ -22,14 +22,17 @@ export class MailService {
       this.logger.log(`Password reset code sent to ${email}`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to send password reset email to ${email}`, error);
+      this.logger.error(
+        `Failed to send password reset email to ${email}`,
+        error,
+      );
       return false;
     }
   }
 
   private getPasswordResetTemplate(code: string, name?: string): string {
     const displayName = name || 'User';
-    
+
     return `
 <!DOCTYPE html>
 <html>
