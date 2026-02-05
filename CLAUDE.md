@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WhatsApp Blasting SaaS backend - a multi-tenant platform where users subscribe to packages, connect their WhatsApp accounts via QR scan, and send bulk messages with queue-based processing.
+WhatsApp Blasting SaaS backend - a multi-tenant platform where users subscribe to packages, connect their WhatsApp accounts via QR scan or pairing code, and send bulk messages with queue-based processing.
 
 ## Common Commands
 
@@ -44,7 +44,7 @@ npm run docker:logs             # Follow logs
 - `packages/` - Subscription package definitions
 - `payments/` - Midtrans payment gateway integration
 - `subscriptions/` - User subscription lifecycle, quota tracking
-- `whatsapp/` - WhatsApp Web session management via whatsapp-web.js, WebSocket gateway for real-time events
+- `whatsapp/` - WhatsApp session management via Baileys (WebSocket-based), adapter pattern in `adapters/`, WebSocket gateway for real-time events
 - `blasts/` - Bulk message campaigns with BullMQ queue processing (`processors/blast.processor.ts`)
 - `contacts/` - Contact list management for blast recipients
 - `templates/` - Message template management for reusable blast content
@@ -52,6 +52,7 @@ npm run docker:logs             # Follow logs
 - `reports/` - Dashboard stats and CSV exports
 - `audit/` - Audit logging system for tracking user actions and system events
 - `mail/` - Email service using Nodemailer with Handlebars templates
+- `notifications/` - In-app notifications with WebSocket delivery and email integration
 - `health/` - System health endpoints
 
 **Infrastructure** (`src/`):
@@ -59,9 +60,15 @@ npm run docker:logs             # Follow logs
 - `config/` - Environment configuration loaders and validation
 
 **Core Entities** (`src/database/entities/`):
-- User, Package, Payment, Subscription, WhatsAppSession, Contact, Template, PasswordReset, AuditLog
+- User, Package, Payment, Subscription, WhatsAppSession, Contact, Template, PasswordReset, AuditLog, Notification
 - `blast.entity.ts` - Contains both Blast and BlastMessage entities, plus status enums (BlastStatus, MessageStatus, MessageErrorType)
 - BlastReply - Stores incoming replies to blast messages
+
+**Database Indexes** (important for query performance):
+- `blast_messages`: [blastId, status]
+- `blasts`: [userId, status], [userId, createdAt]
+- `contacts`: [userId, phoneNumber]
+- `notifications`: [userId, isRead], [userId, createdAt]
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -80,12 +87,15 @@ npm run docker:logs             # Follow logs
 
 **WhatsApp Session**:
 - One session per user enforced, max concurrent sessions configurable via `MAX_WA_SESSIONS`
-- Uses whatsapp-web.js (Puppeteer-based, unofficial API)
-- Session persistence in `.wwebjs_auth/` directory
+- Uses Baileys (`@whiskeysockets/baileys`) - WebSocket-based, no Puppeteer/Chromium needed
+- Adapter pattern: `IWhatsAppClientAdapter` interface with `BaileysAdapter` implementation in `adapters/`
+- Session persistence in `.baileys_auth/` directory (uses `useMultiFileAuthState`)
+- Supports both QR scan and pairing code connection (`POST /whatsapp/connect-pairing`)
 - Auto-disconnect idle sessions after `WA_IDLE_TIMEOUT_MINUTES` (checked every minute)
 - Blasting status flag prevents auto-disconnect during active blasts
-- WebSocket gateway (`whatsapp.gateway.ts`) emits: `qr`, `status`, `blast-started`, `blast-progress`, `blast-completed`, `blast-reply`, `quota-warning`
-- Media caching (1 hour TTL) for optimized image sending from local or R2 URLs
+- WebSocket gateway (`whatsapp.gateway.ts`) at namespace `/whatsapp` emits: `qr`, `status`, `blast-started`, `blast-progress`, `blast-completed`, `blast-reply`, `quota-warning`, `notification`
+- Media caching (1 hour TTL) for optimized media sending from local or R2 URLs
+- Contact store populated from Baileys events (`contacts.upsert`, `contacts.update`)
 
 **Image Storage Pipeline**:
 - Images uploaded via `UploadsModule`, compressed with Sharp
@@ -120,7 +130,6 @@ Environment variables configured via `.env` (see `.env.example`):
 - `R2_*` - Cloudflare R2 storage (falls back to local `uploads/` if not set)
 - `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
-- `PUPPETEER_EXECUTABLE_PATH` - Custom Chromium path for Docker
 
 **API Endpoints:**
 - API Base: `http://localhost:{PORT}/api`
@@ -140,3 +149,7 @@ Never:
 - Bypass WhatsApp rate limits
 - Suggest unsafe automation tricks
 - Assume infinite server resources
+
+## Testing Reference
+
+For manual API testing guide with example requests for Auth, WhatsApp Connect, and Blasting flows, see `testing.md`.

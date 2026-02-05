@@ -16,7 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
-import { SendMessageDto, SessionQueryDto } from './dto';
+import { SendMessageDto, SessionQueryDto, ConnectPairingDto } from './dto';
 
 @ApiTags('WhatsApp')
 @ApiBearerAuth('JWT-auth')
@@ -36,6 +36,34 @@ export class WhatsAppController {
       return await this.whatsappService.initializeSession(userId);
     } catch (error) {
       throw new BadRequestException(`Failed to connect: ${error}`);
+    }
+  }
+
+  @Post('connect-pairing')
+  @ApiOperation({
+    summary: 'Connect WhatsApp session via pairing code',
+    description: 'Initialize a WhatsApp session using a pairing code instead of QR scan. Returns an 8-digit code that the user enters in WhatsApp > Linked Devices > Link with Phone Number.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Pairing code generated',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', example: 'waiting_code' },
+        code: { type: 'string', example: '12345678' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Failed to generate pairing code' })
+  async connectWithPairing(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ConnectPairingDto,
+  ) {
+    try {
+      return await this.whatsappService.initializeSessionWithPairing(userId, dto.phoneNumber);
+    } catch (error) {
+      throw new BadRequestException(`Failed to connect with pairing code: ${error}`);
     }
   }
 
