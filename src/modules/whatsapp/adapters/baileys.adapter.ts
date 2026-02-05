@@ -11,6 +11,8 @@ import makeWASocket, {
   isLidUser,
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
+
+
 import { Boom } from '@hapi/boom';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -46,9 +48,15 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       fs.mkdirSync(config.authPath, { recursive: true });
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState(config.authPath);
+    // Manual Persistent Store: Load contacts
+    this.loadContacts();
 
-    // Fetch the latest Baileys version for protocol compatibility
+    // Auto-save contacts periodically
+    setInterval(() => {
+      this.saveContacts();
+    }, 10000);
+
+    const { state, saveCreds } = await useMultiFileAuthState(config.authPath);
     const { version, isLatest } = await fetchLatestBaileysVersion();
     this.logger.log(`Using WA version: ${version.join('.')}, isLatest: ${isLatest}`);
 
@@ -60,10 +68,15 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60000,
-      syncFullHistory: false,
+      syncFullHistory: true,
+      shouldSyncHistoryMessage: () => true,
     });
 
     this.setupEvents(saveCreds);
+  }
+
+  async getContacts(): Promise<ContactInfo[]> {
+    return Array.from(this.contacts.values());
   }
 
   private setupEvents(saveCreds: () => Promise<void>): void {
@@ -103,7 +116,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         const reason = this.getDisconnectReason(statusCode);
 
         if (statusCode === DisconnectReason.loggedOut) {
-          // Session logged out - clear auth state and notify
           this.cleanupAuthState();
           config.onAuthFailure('Session logged out');
           config.onDisconnected(reason);
@@ -112,7 +124,6 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
           statusCode === DisconnectReason.badSession ||
           statusCode === 405
         ) {
-          // These errors require reconnection - reinitialize after a short delay
           this.logger.warn(`Reconnecting due to: ${reason} (code: ${statusCode})`);
           setTimeout(() => {
             this.initialize(config).catch((err) => {
@@ -132,28 +143,43 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       for (const msg of event.messages) {
         const remoteJid = msg.key.remoteJid || '';
         
-        // Capture LID mapping from messages we send (we know the phone number)
+        // Capture LID mapping from messages we send
         if (msg.key.fromMe && remoteJid.includes('@lid')) {
-          // For sent messages to LID, store the mapping
-          // We'll get the phone number from pendingSends map
           const lidId = remoteJid.replace('@lid', '');
           const phoneNumber = this.pendingSends.get(msg.key.id || '');
           if (phoneNumber) {
             this.lidToPhone.set(lidId, phoneNumber);
-            this.logger.debug(`Mapped LID from sent message: ${lidId} -> ${phoneNumber}`);
+
             this.pendingSends.delete(msg.key.id || '');
           }
         }
         
         if (msg.key.fromMe) continue;
 
-        this.logger.debug(`Incoming message from ${remoteJid}: ${msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[media/other]'}`);
+
         const incomingMessage = await this.mapToIncomingMessage(msg);
         config.onMessage(incomingMessage);
       }
     });
 
+    // Capture initial history sync (contacts often appear here)
+    sock.ev.on('messaging-history.set', (history) => {
+       const contacts = history.contacts || [];
+       const chats = history.chats || [];
+
+       for (const contact of contacts) {
+         this.storeContact(contact);
+       }
+       // Also extract contacts from chats - some contacts only appear as chat JIDs
+       for (const chat of chats) {
+         if (chat.id && !this.contacts.has(chat.id)) {
+           this.storeContact({ id: chat.id, name: chat.name || null, notify: null });
+         }
+       }
+    });
+
     sock.ev.on('contacts.upsert', (contacts) => {
+
       for (const contact of contacts) {
         this.storeContact(contact);
       }
@@ -178,17 +204,30 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       const lidId = mapping.lid.replace('@lid', '');
       const phoneNumber = mapping.pn.replace('@s.whatsapp.net', '');
       this.lidToPhone.set(lidId, phoneNumber);
-      this.logger.debug(`LID mapping received: ${lidId} -> ${phoneNumber}`);
+
     });
   }
+
+
 
   private storeContact(contact: any): void {
     if (!contact.id) return;
 
-    // Only store individual contacts, not groups or broadcasts
-    if (!isPnUser(contact.id) && !isLidUser(contact.id)) return;
+    // Strict Filter for user contacts
+    // 1. Must be a standard user JID (@s.whatsapp.net)
+    if (!contact.id.endsWith('@s.whatsapp.net')) return;
 
+    // 2. Extract number
     const phoneNumber = contact.id.split('@')[0];
+
+    // 3. E.164 standard max length is 15 digits. 
+    // WhatsApp LIDs or other internal IDs often exceed this or look distinct.
+    // We assume valid phone numbers are numeric and <= 15 chars.
+    if (!/^\d+$/.test(phoneNumber) || phoneNumber.length > 15) return;
+
+    // 4. Filter out specific official/system accounts if needed (e.g. 0)
+    if (phoneNumber === '0') return;
+
     this.contacts.set(contact.id, {
       phoneNumber,
       name: contact.verifiedName || contact.name || null,
@@ -197,6 +236,41 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       isWAContact: true,
     });
   }
+
+  private loadContacts(): void {
+    try {
+      if(!this.config) return;
+      const filePath = path.join(this.config.authPath, 'contacts.json');
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath, 'utf-8');
+        const raw = JSON.parse(data);
+        Object.entries(raw).forEach(([key, val]) => {
+          // Re-validate loaded contacts to filter out any junk from previous bugs
+          if (!key.endsWith('@s.whatsapp.net')) return;
+          const phoneNumber = key.split('@')[0];
+          if (!/^\d+$/.test(phoneNumber) || phoneNumber.length > 15) return;
+
+          this.contacts.set(key, val as ContactInfo);
+        });
+        this.logger.log(`Loaded ${this.contacts.size} contacts from file`);
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to load contacts: ${e}`);
+    }
+  }
+
+  private saveContacts(): void {
+    try {
+      if(!this.config) return;
+      const filePath = path.join(this.config.authPath, 'contacts.json');
+      const obj = Object.fromEntries(this.contacts);
+      fs.writeFileSync(filePath, JSON.stringify(obj));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+
 
   private async mapToIncomingMessage(msg: proto.IWebMessageInfo): Promise<IncomingMessage> {
     const messageContent = msg.message;
@@ -221,7 +295,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
               resolvedPhone = resolved;
               // Cache for future use
               this.lidToPhone.set(lidId, resolved);
-              this.logger.debug(`Resolved LID via signalRepository: ${lidId} -> ${resolved}`);
+
             }
           }
         } catch (e) {
@@ -231,7 +305,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
       if (resolvedPhone) {
         from = `${resolvedPhone}@s.whatsapp.net`;
-        this.logger.debug(`Resolved LID ${lidId} -> ${resolvedPhone}`);
+
       } else {
         this.logger.warn(`Could not resolve LID ${lidId} to phone number`);
       }
@@ -477,9 +551,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     }));
   }
 
-  async getContacts(): Promise<ContactInfo[]> {
-    return Array.from(this.contacts.values());
-  }
+
 
   async requestPairingCode(phoneNumber: string): Promise<string> {
     if (!this.sock) throw new Error('Socket not initialized');
