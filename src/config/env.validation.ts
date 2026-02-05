@@ -100,6 +100,15 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   MAIL_FROM?: string;
+
+  // Gemini AI (Optional)
+  @IsString()
+  @IsOptional()
+  GEMINI_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  GEMINI_MODEL?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

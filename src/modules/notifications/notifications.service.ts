@@ -123,7 +123,7 @@ export class NotificationsService {
     const templates: Record<NotificationType, NotificationTemplateData> = {
       // Account
       [NotificationType.WELCOME]: {
-        title: 'Selamat Datang di Waspread! 🎉',
+        title: 'Selamat Datang di Waspread!',
         message: `Halo ${data?.name || 'User'}! Akun Anda telah berhasil dibuat. Mulai kirim pesan WhatsApp massal dengan mudah.`,
         subject: 'Selamat Datang di Waspread!',
       },
@@ -136,12 +136,12 @@ export class NotificationsService {
 
       // Subscription
       [NotificationType.SUBSCRIPTION_ACTIVATED]: {
-        title: 'Langganan Aktif! ✅',
+        title: 'Langganan Aktif!',
         message: `Paket ${data?.packageName || ''} Anda telah aktif. Kuota: ${data?.quota || 0} pesan. Berlaku hingga ${data?.expiredAt || ''}.`,
         subject: 'Langganan Anda Telah Aktif',
       },
       [NotificationType.SUBSCRIPTION_EXPIRING]: {
-        title: 'Langganan Akan Segera Berakhir ⚠️',
+        title: 'Langganan Akan Segera Berakhir',
         message: `Langganan Anda akan berakhir dalam ${data?.daysLeft || 3} hari. Perpanjang sekarang untuk tetap dapat mengirim pesan.`,
         subject: 'Langganan Anda Akan Segera Berakhir',
       },
@@ -152,7 +152,7 @@ export class NotificationsService {
         subject: 'Langganan Anda Telah Berakhir',
       },
       [NotificationType.QUOTA_LOW]: {
-        title: 'Kuota Hampir Habis ⚠️',
+        title: 'Kuota Hampir Habis',
         message: `Kuota pesan Anda tersisa ${data?.remaining || 0} dari ${data?.total || 0}. Upgrade paket untuk menambah kuota.`,
         subject: 'Kuota Pesan Hampir Habis',
       },
@@ -165,7 +165,7 @@ export class NotificationsService {
 
       // Payment
       [NotificationType.PAYMENT_SUCCESS]: {
-        title: 'Pembayaran Berhasil! 💰',
+        title: 'Pembayaran Berhasil!',
         message: `Pembayaran untuk paket ${data?.packageName || ''} sebesar Rp ${data?.amount?.toLocaleString('id-ID') || 0} telah berhasil.`,
         subject: 'Pembayaran Berhasil',
       },
@@ -182,7 +182,7 @@ export class NotificationsService {
 
       // WhatsApp
       [NotificationType.SESSION_CONNECTED]: {
-        title: 'WhatsApp Terhubung ✅',
+        title: 'WhatsApp Terhubung',
         message: `WhatsApp dengan nomor ${data?.phoneNumber || ''} telah terhubung dan siap digunakan.`,
         subject: 'WhatsApp Berhasil Terhubung',
       },
@@ -201,22 +201,22 @@ export class NotificationsService {
 
       // Blast
       [NotificationType.BLAST_STARTED]: {
-        title: 'Blast Dimulai 🚀',
+        title: 'Blast Dimulai',
         message: `Kampanye "${data?.blastName || ''}" telah dimulai. Total ${data?.totalRecipients || 0} penerima.`,
         subject: 'Kampanye Blast Dimulai',
       },
       [NotificationType.BLAST_COMPLETED]: {
-        title: 'Blast Selesai! ✅',
+        title: 'Blast Selesai',
         message: `Kampanye "${data?.blastName || ''}" telah selesai. Terkirim: ${data?.sent || 0}, Gagal: ${data?.failed || 0}, Invalid: ${data?.invalid || 0}.`,
         subject: 'Kampanye Blast Selesai',
       },
       [NotificationType.BLAST_FAILED]: {
-        title: 'Blast Gagal ❌',
+        title: 'Blast Gagal',
         message: `Kampanye "${data?.blastName || ''}" gagal diproses. ${data?.reason || 'Silakan coba lagi.'}`,
         subject: 'Kampanye Blast Gagal',
       },
       [NotificationType.BLAST_REPLY]: {
-        title: 'Balasan Baru 💬',
+        title: 'Balasan Baru',
         message: `Anda menerima balasan dari ${data?.phoneNumber || ''}: "${data?.preview || ''}"`,
         subject: 'Anda Menerima Balasan Baru',
       },

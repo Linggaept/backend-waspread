@@ -289,7 +289,9 @@ export class WhatsAppService implements OnModuleDestroy {
             if (message.fromMe) return;
 
             const phoneNumber = message.from.replace('@c.us', '');
-            this.logger.log(`[Reply] Incoming message from ${phoneNumber}: "${message.body?.substring(0, 50) || '[no text]'}"`);
+            this.logger.log(
+              `[Reply] Incoming message from ${phoneNumber}: "${message.body?.substring(0, 50) || '[no text]'}"`,
+            );
 
             if (this.replyHandler) {
               this.logger.debug(`[Reply] Passing to replyHandler...`);
@@ -713,7 +715,9 @@ export class WhatsAppService implements OnModuleDestroy {
         this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
         buffer = await this.storageService.downloadFromR2(r2Key);
       } catch (error) {
-        this.logger.warn(`Failed to download via S3 SDK, falling back to HTTP: ${error}`);
+        this.logger.warn(
+          `Failed to download via S3 SDK, falling back to HTTP: ${error}`,
+        );
         this.logger.debug(`Downloading via HTTP (Fallback): ${url}`);
         buffer = await this.downloadBuffer(url);
       }
@@ -745,11 +749,13 @@ export class WhatsAppService implements OnModuleDestroy {
   private async downloadBuffer(url: string): Promise<Buffer> {
     try {
       this.logger.debug(`Downloading via Axios: ${url}`);
-      const response = await axios.get(url, { 
+      const response = await axios.get(url, {
         responseType: 'arraybuffer',
-        timeout: 30000 // 30s timeout
+        timeout: 30000, // 30s timeout
       });
-      this.logger.debug(`Download finished via Axios: ${url} (${response.data.length} bytes)`);
+      this.logger.debug(
+        `Download finished via Axios: ${url} (${response.data.length} bytes)`,
+      );
       return Buffer.from(response.data);
     } catch (error: any) {
       this.logger.error(`Axios download failed: ${error.message}`);

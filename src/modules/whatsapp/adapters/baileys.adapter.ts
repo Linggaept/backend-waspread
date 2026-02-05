@@ -9,7 +9,6 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 
-
 import { Boom } from '@hapi/boom';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
@@ -38,7 +37,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   private config: WhatsAppClientConfig | null = null;
   private contacts: Map<string, ContactInfo> = new Map();
   private lidToPhone: Map<string, string> = new Map();
-  private pendingSends: Map<string, { phoneNumber: string; createdAt: number }> = new Map();
+  private pendingSends: Map<
+    string,
+    { phoneNumber: string; createdAt: number }
+  > = new Map();
 
   // Timers & dirty tracking
   private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -65,7 +67,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
     const { state, saveCreds } = await useMultiFileAuthState(config.authPath);
     const { version, isLatest } = await fetchLatestBaileysVersion();
-    this.logger.log(`Using WA version: ${version.join('.')}, isLatest: ${isLatest}`);
+    this.logger.log(
+      `Using WA version: ${version.join('.')}, isLatest: ${isLatest}`,
+    );
 
     this.sock = makeWASocket({
       version,
@@ -130,7 +134,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
           statusCode === DisconnectReason.badSession ||
           statusCode === 405
         ) {
-          this.logger.warn(`Reconnecting due to: ${reason} (code: ${statusCode})`);
+          this.logger.warn(
+            `Reconnecting due to: ${reason} (code: ${statusCode})`,
+          );
           setTimeout(() => {
             this.initialize(config).catch((err) => {
               this.logger.error(`Reconnection failed: ${err}`);
@@ -168,20 +174,24 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     });
 
     sock.ev.on('messaging-history.set', (history) => {
-       const contacts = history.contacts || [];
-       const chats = history.chats || [];
+      const contacts = history.contacts || [];
+      const chats = history.chats || [];
 
-       for (const contact of contacts) {
-         this.storeContact(contact);
-       }
-       for (const chat of chats) {
-         if (chat.id && !this.contacts.has(chat.id)) {
-           this.storeContact({ id: chat.id, name: chat.name || null, notify: null });
-         }
-       }
+      for (const contact of contacts) {
+        this.storeContact(contact);
+      }
+      for (const chat of chats) {
+        if (chat.id && !this.contacts.has(chat.id)) {
+          this.storeContact({
+            id: chat.id,
+            name: chat.name || null,
+            notify: null,
+          });
+        }
+      }
 
-       // Debounced save after history batch
-       this.scheduleSave();
+      // Debounced save after history batch
+      this.scheduleSave();
     });
 
     sock.ev.on('contacts.upsert', (contacts) => {
@@ -200,7 +210,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
             existing.pushname = update.notify;
             changed = true;
           }
-          if ((update as any).verifiedName && (update as any).verifiedName !== existing.name) {
+          if (
+            (update as any).verifiedName &&
+            (update as any).verifiedName !== existing.name
+          ) {
             existing.name = (update as any).verifiedName;
             changed = true;
           }
@@ -316,7 +329,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         for (const [lid, phone] of Object.entries(raw)) {
           this.lidToPhone.set(lid, phone);
         }
-        this.logger.log(`Loaded ${this.lidToPhone.size} LID mappings from file`);
+        this.logger.log(
+          `Loaded ${this.lidToPhone.size} LID mappings from file`,
+        );
       } catch (e: any) {
         if (e.code !== 'ENOENT') throw e;
       }
@@ -345,7 +360,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     }
   }
 
-  private async mapToIncomingMessage(msg: proto.IWebMessageInfo): Promise<IncomingMessage> {
+  private async mapToIncomingMessage(
+    msg: proto.IWebMessageInfo,
+  ): Promise<IncomingMessage> {
     const messageContent = msg.message;
     const contentType = messageContent
       ? getContentType(messageContent)
@@ -421,7 +438,11 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
               try {
                 if (!msg.key) throw new Error('Message key is missing');
 
-                const buffer = await downloadMediaMessage(msg as any, 'buffer', {});
+                const buffer = await downloadMediaMessage(
+                  msg as any,
+                  'buffer',
+                  {},
+                );
                 if (!buffer) return null;
 
                 let mimetype = 'application/octet-stream';
@@ -515,7 +536,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       const result = await this.sock.sendMessage(jid, { text: content });
 
       if (result?.key?.id) {
-        this.pendingSends.set(result.key.id, { phoneNumber, createdAt: Date.now() });
+        this.pendingSends.set(result.key.id, {
+          phoneNumber,
+          createdAt: Date.now(),
+        });
       }
 
       this.storeLidMapping(result, jid);
@@ -573,7 +597,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       }
 
       if (result?.key?.id) {
-        this.pendingSends.set(result.key.id, { phoneNumber, createdAt: Date.now() });
+        this.pendingSends.set(result.key.id, {
+          phoneNumber,
+          createdAt: Date.now(),
+        });
       }
 
       this.storeLidMapping(result, jid);

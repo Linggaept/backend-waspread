@@ -21,12 +21,14 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { CopywritingModule } from './modules/copywriting/copywriting.module';
 import {
   databaseConfig,
   redisConfig,
   appConfig,
   midtransConfig,
   mailConfig,
+  geminiConfig,
 } from './config';
 import { validate } from './config/env.validation';
 
@@ -41,6 +43,7 @@ import { validate } from './config/env.validation';
         appConfig,
         midtransConfig,
         mailConfig,
+        geminiConfig,
       ],
       envFilePath: ['.env'],
       validate,
@@ -80,6 +83,7 @@ import { validate } from './config/env.validation';
     TemplatesModule,
     AuditModule,
     NotificationsModule,
+    CopywritingModule,
   ],
   controllers: [AppController],
   providers: [
