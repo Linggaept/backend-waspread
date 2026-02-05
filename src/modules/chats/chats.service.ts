@@ -36,21 +36,9 @@ export class ChatsService {
     );
     if (!rawPhone) return;
 
-    // For outgoing live messages: skip (sendTextMessage already saved)
-    if (message.fromMe) {
-      const isHistoryMessage =
-        message.timestamp > 0 &&
-        Date.now() / 1000 - message.timestamp > 60;
-
-      if (!isHistoryMessage) {
-        return;
-      }
-    }
-
-    // Use Baileys phone as-is (canonical WhatsApp JID)
     const phoneNumber = rawPhone;
 
-    // Dedup: skip if already stored
+    // Dedup: skip if already stored (handles sendTextMessage + blast duplicates)
     const existing = await this.chatMessageRepository.findOne({
       where: { whatsappMessageId: waMessageId },
     });
@@ -122,24 +110,28 @@ export class ChatsService {
     try {
       const saved = await this.chatMessageRepository.save(chatMessage) as ChatMessage;
 
-      // Emit WebSocket event for incoming messages
       if (direction === ChatMessageDirection.INCOMING) {
         this.logger.log(
           `[REALTIME] Incoming message from ${saved.phoneNumber}: "${saved.body?.substring(0, 80) || '[no text]'}" → emitting chat:message to user:${userId}`,
         );
-
-        this.whatsAppGateway.server
-          .to(`user:${userId}`)
-          .emit('chat:message', {
-            id: saved.id,
-            phoneNumber: saved.phoneNumber,
-            direction: saved.direction,
-            body: saved.body,
-            hasMedia: saved.hasMedia,
-            mediaType: saved.mediaType,
-            timestamp: saved.timestamp,
-          });
+      } else {
+        this.logger.log(
+          `[REALTIME] Outgoing message to ${saved.phoneNumber}: "${saved.body?.substring(0, 80) || '[no text]'}" stored via upsert`,
+        );
       }
+
+      // Emit WebSocket event for all messages
+      this.whatsAppGateway.server
+        .to(`user:${userId}`)
+        .emit('chat:message', {
+          id: saved.id,
+          phoneNumber: saved.phoneNumber,
+          direction: saved.direction,
+          body: saved.body,
+          hasMedia: saved.hasMedia,
+          mediaType: saved.mediaType,
+          timestamp: saved.timestamp,
+        });
     } catch (error: any) {
       // Unique constraint violation = duplicate, ignore
       if (error?.code === '23505') return;

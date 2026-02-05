@@ -10,6 +10,11 @@ import {
   MessageStatus,
   MessageErrorType,
 } from '../../../database/entities/blast.entity';
+import {
+  ChatMessage,
+  ChatMessageDirection,
+  ChatMessageStatus,
+} from '../../../database/entities/chat-message.entity';
 import { User } from '../../../database/entities/user.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
@@ -35,6 +40,8 @@ export class BlastProcessor extends WorkerHost {
     private readonly blastRepository: Repository<Blast>,
     @InjectRepository(BlastMessage)
     private readonly messageRepository: Repository<BlastMessage>,
+    @InjectRepository(ChatMessage)
+    private readonly chatMessageRepository: Repository<ChatMessage>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly whatsappService: WhatsAppService,
@@ -114,9 +121,10 @@ export class BlastProcessor extends WorkerHost {
       }
 
       // Send message with or without media
+      let sendResult: { success: boolean; messageId?: string };
       if (mediaUrl) {
         try {
-          await this.whatsappService.sendMessageWithMedia(
+          sendResult = await this.whatsappService.sendMessageWithMedia(
             userId,
             phoneNumber,
             message,
@@ -136,7 +144,7 @@ export class BlastProcessor extends WorkerHost {
               `Media send failed due to network, falling back to text only: ${mediaError}`,
             );
             // Fallback to text only
-            await this.whatsappService.sendMessage(
+            sendResult = await this.whatsappService.sendMessage(
               userId,
               phoneNumber,
               message
@@ -149,14 +157,41 @@ export class BlastProcessor extends WorkerHost {
           }
         }
       } else {
-        await this.whatsappService.sendMessage(userId, phoneNumber, message);
+        sendResult = await this.whatsappService.sendMessage(userId, phoneNumber, message);
       }
 
-      // Update message status
+      // Update message status + save whatsappMessageId for campaign linking
       await this.messageRepository.update(messageId, {
         status: MessageStatus.SENT,
         sentAt: new Date(),
+        whatsappMessageId: sendResult.messageId || undefined,
       });
+
+      // Store in chat_messages for inbox conversations
+      const normalizedPhone = this.normalizePhoneNumber(phoneNumber);
+      try {
+        const chatMsg = this.chatMessageRepository.create({
+          userId,
+          phoneNumber: normalizedPhone,
+          direction: ChatMessageDirection.OUTGOING,
+          body: message,
+          hasMedia: !!mediaUrl,
+          mediaType: mediaType || undefined,
+          mediaUrl: mediaUrl || undefined,
+          whatsappMessageId: sendResult.messageId || undefined,
+          messageType: mediaType ? `${mediaType}Message` : 'conversation',
+          status: ChatMessageStatus.SENT,
+          timestamp: new Date(),
+          isRead: true,
+          blastId,
+        });
+        await this.chatMessageRepository.save(chatMsg);
+      } catch (chatError: any) {
+        // Ignore duplicate (dedup by whatsappMessageId)
+        if (chatError?.code !== '23505') {
+          this.logger.warn(`Failed to store blast chat message: ${chatError}`);
+        }
+      }
 
       // Update blast counts
       await this.blastRepository.increment({ id: blastId }, 'sentCount', 1);
@@ -357,6 +392,17 @@ export class BlastProcessor extends WorkerHost {
 
       this.logger.log(`Blast ${blastId} completed with status: ${newStatus}`);
     }
+  }
+
+  private normalizePhoneNumber(phone: string): string {
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+    if (cleaned.startsWith('62') && cleaned.length > 13 && cleaned.endsWith('0')) {
+      cleaned = cleaned.slice(0, -1);
+    }
+    return cleaned;
   }
 
   @OnWorkerEvent('failed')

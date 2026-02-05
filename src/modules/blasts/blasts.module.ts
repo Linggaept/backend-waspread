@@ -5,6 +5,7 @@ import { BlastsService } from './blasts.service';
 import { BlastsController } from './blasts.controller';
 import { BlastProcessor } from './processors/blast.processor';
 import { Blast, BlastMessage } from '../../database/entities/blast.entity';
+import { ChatMessage } from '../../database/entities/chat-message.entity';
 import { BlastReply } from '../../database/entities/blast-reply.entity';
 import { User } from '../../database/entities/user.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -19,7 +20,7 @@ import { BlastRepliesService } from './services/blast-replies.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Blast, BlastMessage, BlastReply, User]),
+    TypeOrmModule.forFeature([Blast, BlastMessage, ChatMessage, BlastReply, User]),
     BullModule.registerQueue({
       name: 'blast',
     }),
