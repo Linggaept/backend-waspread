@@ -41,6 +41,7 @@ export class StorageService {
       this.s3Client = new S3Client({
         region: 'auto',
         endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        forcePathStyle: true, // Required for R2 to avoid bucket.account.r2... hostname issues
         credentials: {
           accessKeyId: accessKeyId!,
           secretAccessKey: secretAccessKey!,

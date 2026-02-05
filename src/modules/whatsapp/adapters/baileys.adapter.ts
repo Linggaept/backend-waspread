@@ -7,7 +7,8 @@ import makeWASocket, {
   getContentType,
   proto,
   jidNormalizedUser,
-  isJidUser,
+  isPnUser,
+  isLidUser,
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
@@ -147,7 +148,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         if (msg.key.fromMe) continue;
 
         this.logger.debug(`Incoming message from ${remoteJid}: ${msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[media/other]'}`);
-        const incomingMessage = this.mapToIncomingMessage(msg);
+        const incomingMessage = await this.mapToIncomingMessage(msg);
         config.onMessage(incomingMessage);
       }
     });
@@ -171,13 +172,21 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         }
       }
     });
+
+    // Listen for LID mapping updates from WhatsApp (Baileys v7+)
+    sock.ev.on('lid-mapping.update', (mapping: { lid: string; pn: string }) => {
+      const lidId = mapping.lid.replace('@lid', '');
+      const phoneNumber = mapping.pn.replace('@s.whatsapp.net', '');
+      this.lidToPhone.set(lidId, phoneNumber);
+      this.logger.debug(`LID mapping received: ${lidId} -> ${phoneNumber}`);
+    });
   }
 
   private storeContact(contact: any): void {
     if (!contact.id) return;
 
     // Only store individual contacts, not groups or broadcasts
-    if (!isJidUser(contact.id)) return;
+    if (!isPnUser(contact.id) && !isLidUser(contact.id)) return;
 
     const phoneNumber = contact.id.split('@')[0];
     this.contacts.set(contact.id, {
@@ -189,17 +198,37 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     });
   }
 
-  private mapToIncomingMessage(msg: proto.IWebMessageInfo): IncomingMessage {
+  private async mapToIncomingMessage(msg: proto.IWebMessageInfo): Promise<IncomingMessage> {
     const messageContent = msg.message;
     const contentType = messageContent
       ? getContentType(messageContent)
       : undefined;
-    let from = msg.key.remoteJid || '';
+    let from = msg.key?.remoteJid || '';
 
     // Resolve LID to phone number if available
     if (from.includes('@lid')) {
       const lidId = from.replace('@lid', '');
-      const resolvedPhone = this.lidToPhone.get(lidId);
+      let resolvedPhone = this.lidToPhone.get(lidId);
+      
+      // Fallback: use signalRepository.lidMapping.getPNForLID if in-memory cache doesn't have it
+      if (!resolvedPhone && this.sock) {
+        try {
+          const signalRepo = (this.sock as any).signalRepository;
+          if (signalRepo?.lidMapping?.getPNForLID) {
+            const pn = await signalRepo.lidMapping.getPNForLID(from);
+            if (pn) {
+              const resolved = pn.replace('@s.whatsapp.net', '');
+              resolvedPhone = resolved;
+              // Cache for future use
+              this.lidToPhone.set(lidId, resolved);
+              this.logger.debug(`Resolved LID via signalRepository: ${lidId} -> ${resolved}`);
+            }
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to resolve LID via signalRepository: ${e}`);
+        }
+      }
+
       if (resolvedPhone) {
         from = `${resolvedPhone}@s.whatsapp.net`;
         this.logger.debug(`Resolved LID ${lidId} -> ${resolvedPhone}`);
@@ -231,9 +260,9 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
 
     const sock = this.sock;
     return {
-      id: { id: msg.key.id || '' },
+      id: { id: msg.key?.id || '' },
       from: this.formatToWWebJS(from),
-      fromMe: msg.key.fromMe || false,
+      fromMe: msg.key?.fromMe || false,
       body,
       hasMedia,
       type: contentType || 'unknown',
@@ -245,7 +274,10 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         hasMedia && sock
           ? async (): Promise<MediaData | null> => {
               try {
-                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                // Ensure key is present for downloadMediaMessage
+                if (!msg.key) throw new Error('Message key is missing');
+                
+                const buffer = await downloadMediaMessage(msg as any, 'buffer', {});
                 if (!buffer) return null;
 
                 let mimetype = 'application/octet-stream';
@@ -289,6 +321,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       this.sock.ev.removeAllListeners('messages.upsert');
       this.sock.ev.removeAllListeners('contacts.upsert');
       this.sock.ev.removeAllListeners('contacts.update');
+      this.sock.ev.removeAllListeners('lid-mapping.update');
       this.sock.end(undefined);
       this.sock = null;
     }
@@ -311,19 +344,30 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
   }
 
   async sendMessage(chatId: string, content: string): Promise<void> {
-    if (!this.sock) throw new Error('Socket not initialized');
+    if (!this.sock) {
+      this.logger.error('Socket not initialized when trying to send message');
+      throw new Error('Socket not initialized');
+    }
 
     const jid = this.formatToBaileys(chatId);
     const phoneNumber = jid.replace('@s.whatsapp.net', '');
     
-    const result = await this.sock.sendMessage(jid, { text: content });
-    
-    // Store pending send to capture LID mapping from messages.upsert event
-    if (result?.key?.id) {
-      this.pendingSends.set(result.key.id, phoneNumber);
+    this.logger.debug(`Sending message to ${jid} (Phone: ${phoneNumber})`);
+
+    try {
+      const result = await this.sock.sendMessage(jid, { text: content });
+      this.logger.debug(`Message sent to ${jid}, ID: ${result?.key?.id}`);
+      
+      // Store pending send to capture LID mapping from messages.upsert event
+      if (result?.key?.id) {
+        this.pendingSends.set(result.key.id, phoneNumber);
+      }
+      
+      this.storeLidMapping(result, jid);
+    } catch (error) {
+      this.logger.error(`Error sending message to ${jid}: ${error}`);
+      throw error;
     }
-    
-    this.storeLidMapping(result, jid);
   }
 
   async sendMessageWithMedia(
@@ -340,46 +384,55 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     const caption = options?.caption || '';
     let result: any;
 
-    if (options?.sendMediaAsDocument) {
-      result = await this.sock.sendMessage(jid, {
-        document: buffer,
-        mimetype,
-        fileName: mediaData.filename || 'document',
-        caption,
-      });
-    } else if (mimetype.startsWith('image/')) {
-      result = await this.sock.sendMessage(jid, {
-        image: buffer,
-        caption,
-      });
-    } else if (mimetype.startsWith('video/')) {
-      result = await this.sock.sendMessage(jid, {
-        video: buffer,
-        caption,
-      });
-    } else if (mimetype.startsWith('audio/')) {
-      result = await this.sock.sendMessage(jid, {
-        audio: buffer,
-        mimetype,
-        ptt: false,
-      });
-    } else {
-      // Fallback to document
-      result = await this.sock.sendMessage(jid, {
-        document: buffer,
-        mimetype,
-        fileName: mediaData.filename || 'file',
-        caption,
-      });
-    }
+    this.logger.debug(`Sending media to ${jid} (Type: ${mimetype})`);
 
-    // Store pending send to capture LID mapping from messages.upsert event
-    if (result?.key?.id) {
-      this.pendingSends.set(result.key.id, phoneNumber);
-    }
+    try {
+      if (options?.sendMediaAsDocument) {
+        result = await this.sock.sendMessage(jid, {
+          document: buffer,
+          mimetype,
+          fileName: mediaData.filename || 'document',
+          caption,
+        });
+      } else if (mimetype.startsWith('image/')) {
+        result = await this.sock.sendMessage(jid, {
+          image: buffer,
+          caption,
+        });
+      } else if (mimetype.startsWith('video/')) {
+        result = await this.sock.sendMessage(jid, {
+          video: buffer,
+          caption,
+        });
+      } else if (mimetype.startsWith('audio/')) {
+        result = await this.sock.sendMessage(jid, {
+          audio: buffer,
+          mimetype,
+          ptt: false,
+        });
+      } else {
+        // Fallback to document
+        result = await this.sock.sendMessage(jid, {
+          document: buffer,
+          mimetype,
+          fileName: mediaData.filename || 'file',
+          caption,
+        });
+      }
 
-    // Store LID to phone mapping if participant LID is present
-    this.storeLidMapping(result, jid);
+      this.logger.debug(`Media sent to ${jid}, ID: ${result?.key?.id}`);
+
+      // Store pending send to capture LID mapping from messages.upsert event
+      if (result?.key?.id) {
+        this.pendingSends.set(result.key.id, phoneNumber);
+      }
+
+      // Store LID to phone mapping if participant LID is present
+      this.storeLidMapping(result, jid);
+    } catch (error) {
+      this.logger.error(`Error sending media to ${jid}: ${error}`);
+      throw error;
+    }
   }
 
   private storeLidMapping(result: any, jid: string): void {

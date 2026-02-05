@@ -115,13 +115,39 @@ export class BlastProcessor extends WorkerHost {
 
       // Send message with or without media
       if (mediaUrl) {
-        await this.whatsappService.sendMessageWithMedia(
-          userId,
-          phoneNumber,
-          message,
-          mediaUrl,
-          mediaType,
-        );
+        try {
+          await this.whatsappService.sendMessageWithMedia(
+            userId,
+            phoneNumber,
+            message,
+            mediaUrl,
+            mediaType,
+          );
+        } catch (mediaError) {
+          // Check if error is timeout or network related
+          const errorMsg = String(mediaError).toLowerCase();
+          if (
+            errorMsg.includes('timeout') ||
+            errorMsg.includes('network') ||
+            errorMsg.includes('enotfound') ||
+            errorMsg.includes('axios')
+          ) {
+            this.logger.warn(
+              `Media send failed due to network, falling back to text only: ${mediaError}`,
+            );
+            // Fallback to text only
+            await this.whatsappService.sendMessage(
+              userId,
+              phoneNumber,
+              message
+                ? `${message}\n\n*[System: Gambar gagal dimuat karena gangguan koneksi server]*`
+                : '*[System: Gambar gagal dimuat karena gangguan koneksi server]*',
+            );
+          } else {
+            // Re-throw other errors
+            throw mediaError;
+          }
+        }
       } else {
         await this.whatsappService.sendMessage(userId, phoneNumber, message);
       }

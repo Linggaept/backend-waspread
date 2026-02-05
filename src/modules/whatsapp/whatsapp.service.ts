@@ -4,6 +4,7 @@ import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as qrcode from 'qrcode';
+import axios from 'axios';
 import {
   WhatsAppSession,
   SessionStatus,
@@ -708,8 +709,14 @@ export class WhatsAppService implements OnModuleDestroy {
     const r2Key = this.storageService.extractKeyFromUrl(url);
 
     if (r2Key && this.storageService.isR2Enabled()) {
-      this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
-      buffer = await this.storageService.downloadFromR2(r2Key);
+      try {
+        this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
+        buffer = await this.storageService.downloadFromR2(r2Key);
+      } catch (error) {
+        this.logger.warn(`Failed to download via S3 SDK, falling back to HTTP: ${error}`);
+        this.logger.debug(`Downloading via HTTP (Fallback): ${url}`);
+        buffer = await this.downloadBuffer(url);
+      }
     } else {
       this.logger.debug(`Downloading via HTTP: ${url}`);
       buffer = await this.downloadBuffer(url);
@@ -736,38 +743,18 @@ export class WhatsAppService implements OnModuleDestroy {
   }
 
   private async downloadBuffer(url: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const isHttps = url.startsWith('https');
-      const protocol = isHttps ? require('https') : require('http');
-
-      const options = isHttps ? { rejectUnauthorized: false } : {};
-
-      const request = protocol.get(url, options, (response: any) => {
-        if (
-          response.statusCode >= 300 &&
-          response.statusCode < 400 &&
-          response.headers.location
-        ) {
-          return this.downloadBuffer(response.headers.location)
-            .then(resolve)
-            .catch(reject);
-        }
-
-        if (response.statusCode !== 200) {
-          reject(
-            new Error(`Failed to download media: HTTP ${response.statusCode}`),
-          );
-          return;
-        }
-
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
+    try {
+      this.logger.debug(`Downloading via Axios: ${url}`);
+      const response = await axios.get(url, { 
+        responseType: 'arraybuffer',
+        timeout: 30000 // 30s timeout
       });
-
-      request.on('error', reject);
-    });
+      this.logger.debug(`Download finished via Axios: ${url} (${response.data.length} bytes)`);
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      this.logger.error(`Axios download failed: ${error.message}`);
+      throw error;
+    }
   }
 
   private getMimeTypeFromPath(filePath: string): string {

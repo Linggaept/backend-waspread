@@ -174,8 +174,11 @@ export class ReplyDetectionService {
    * Normalize phone number to a consistent format
    */
   private normalizePhoneNumber(phone: string): string {
+    // Remove JID suffix (everything after @ or :)
+    let cleaned = phone.split('@')[0].split(':')[0];
+
     // Remove all non-digit characters
-    let cleaned = phone.replace(/\D/g, '');
+    cleaned = cleaned.replace(/\D/g, '');
 
     // Remove leading 0 and add country code if needed
     if (cleaned.startsWith('0')) {
