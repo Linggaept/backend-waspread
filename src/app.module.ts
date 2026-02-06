@@ -25,6 +25,7 @@ import { CopywritingModule } from './modules/copywriting/copywriting.module';
 import { ChatsModule } from './modules/chats/chats.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AiModule } from './modules/ai/ai.module';
+import { LeadsModule } from './modules/leads/leads.module';
 import {
   databaseConfig,
   redisConfig,
@@ -90,6 +91,7 @@ import { validate } from './config/env.validation';
     ChatsModule,
     SettingsModule,
     AiModule,
+    LeadsModule,
   ],
   controllers: [AppController],
   providers: [

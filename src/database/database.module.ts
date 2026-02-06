@@ -18,6 +18,8 @@ import { PinnedConversation } from './entities/pinned-conversation.entity';
 import { UserSettings } from './entities/user-settings.entity';
 import { AiKnowledgeBase } from './entities/ai-knowledge-base.entity';
 import { AiSettings } from './entities/ai-settings.entity';
+import { LeadScore } from './entities/lead-score.entity';
+import { LeadScoreSettings } from './entities/lead-score-settings.entity';
 
 @Module({
   imports: [
@@ -50,6 +52,8 @@ import { AiSettings } from './entities/ai-settings.entity';
           UserSettings,
           AiKnowledgeBase,
           AiSettings,
+          LeadScore,
+          LeadScoreSettings,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!
