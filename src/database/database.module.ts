@@ -15,6 +15,7 @@ import { AuditLog } from './entities/audit-log.entity';
 import { Notification } from './entities/notification.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { PinnedConversation } from './entities/pinned-conversation.entity';
+import { UserSettings } from './entities/user-settings.entity';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { PinnedConversation } from './entities/pinned-conversation.entity';
           Notification,
           ChatMessage,
           PinnedConversation,
+          UserSettings,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!

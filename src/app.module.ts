@@ -23,6 +23,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CopywritingModule } from './modules/copywriting/copywriting.module';
 import { ChatsModule } from './modules/chats/chats.module';
+import { SettingsModule } from './modules/settings/settings.module';
 import {
   databaseConfig,
   redisConfig,
@@ -86,6 +87,7 @@ import { validate } from './config/env.validation';
     NotificationsModule,
     CopywritingModule,
     ChatsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [
