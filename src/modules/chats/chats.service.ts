@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import {
   ChatMessage,
   ChatMessageDirection,
   ChatMessageStatus,
 } from '../../database/entities/chat-message.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
+import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import type { IncomingMessage } from '../whatsapp/adapters/whatsapp-client.interface';
@@ -20,6 +21,8 @@ export class ChatsService {
     private readonly chatMessageRepository: Repository<ChatMessage>,
     @InjectRepository(BlastMessage)
     private readonly blastMessageRepository: Repository<BlastMessage>,
+    @InjectRepository(PinnedConversation)
+    private readonly pinnedConversationRepository: Repository<PinnedConversation>,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
@@ -269,8 +272,23 @@ export class ChatsService {
       }
     }
 
+    // Get pinned conversations
+    const pinnedConvos = await this.pinnedConversationRepository.find({
+      where: { userId, sessionPhoneNumber },
+      select: ['phoneNumber'],
+    });
+    const pinnedSet = new Set(pinnedConvos.map((p) => p.phoneNumber));
+
+    // Get pushNames for all phone numbers
+    const pushNames = await this.whatsAppService.getContactsPushNames(
+      userId,
+      phoneNumbers,
+    );
+
     const data = messages.map((msg) => ({
       phoneNumber: msg.phoneNumber,
+      pushName: pushNames[msg.phoneNumber] || null,
+      isPinned: pinnedSet.has(msg.phoneNumber),
       lastMessage: {
         id: msg.id,
         body: msg.body,
@@ -282,6 +300,13 @@ export class ChatsService {
       unreadCount: unreadCounts[msg.phoneNumber] || 0,
       campaign: blastLabels[msg.phoneNumber] || null,
     }));
+
+    // Sort: pinned first, then by timestamp
+    data.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.lastMessage.timestamp).getTime() - new Date(a.lastMessage.timestamp).getTime();
+    });
 
     return { data, total, page, limit };
   }
@@ -297,8 +322,16 @@ export class ChatsService {
     // Get current session phone number to filter chats
     const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
     if (!sessionPhoneNumber) {
-      return { data: [], total: 0, page, limit };
+      return { data: [], total: 0, page, limit, contact: null };
     }
+
+    // Get contact info (pushName) for this phone number
+    const contact = await this.whatsAppService.getContactByPhone(userId, normalized);
+
+    // Check if conversation is pinned
+    const pinnedConvo = await this.pinnedConversationRepository.findOne({
+      where: { userId, sessionPhoneNumber, phoneNumber: normalized },
+    });
 
     const [messages, total] = await this.chatMessageRepository.findAndCount({
       where: { userId, sessionPhoneNumber, phoneNumber: normalized },
@@ -340,7 +373,17 @@ export class ChatsService {
       blastName: msg.blast?.name || null,
     }));
 
-    return { data, total, page, limit };
+    return {
+      data,
+      total,
+      page,
+      limit,
+      contact: {
+        phoneNumber: normalized,
+        pushName: contact?.pushname || contact?.name || null,
+        isPinned: !!pinnedConvo,
+      },
+    };
   }
 
   async markConversationAsRead(
@@ -508,6 +551,210 @@ export class ChatsService {
     });
 
     return { unreadCount: count };
+  }
+
+  /**
+   * Delete entire conversation (all messages with a phone number)
+   */
+  async deleteConversation(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{ deleted: number }> {
+    const normalized = this.normalizePhoneNumber(phoneNumber);
+
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { deleted: 0 };
+    }
+
+    const result = await this.chatMessageRepository.delete({
+      userId,
+      sessionPhoneNumber,
+      phoneNumber: normalized,
+    });
+
+    // Also remove from pinned if exists
+    await this.pinnedConversationRepository.delete({
+      userId,
+      sessionPhoneNumber,
+      phoneNumber: normalized,
+    });
+
+    // Emit conversation deleted event
+    this.whatsAppGateway.server
+      .to(`user:${userId}`)
+      .emit('chat:conversation-deleted', {
+        phoneNumber: normalized,
+      });
+
+    return { deleted: result.affected || 0 };
+  }
+
+  /**
+   * Delete a single message (local only)
+   */
+  async deleteMessage(
+    userId: string,
+    messageId: string,
+  ): Promise<{ deleted: boolean }> {
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { deleted: false };
+    }
+
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, userId, sessionPhoneNumber },
+    });
+
+    if (!message) {
+      return { deleted: false };
+    }
+
+    await this.chatMessageRepository.delete({ id: messageId });
+
+    // Emit message deleted event
+    this.whatsAppGateway.server
+      .to(`user:${userId}`)
+      .emit('chat:message-deleted', {
+        messageId,
+        phoneNumber: message.phoneNumber,
+      });
+
+    return { deleted: true };
+  }
+
+  /**
+   * Retract/revoke a message (delete for everyone on WhatsApp)
+   */
+  async retractMessage(
+    userId: string,
+    messageId: string,
+  ): Promise<{ retracted: boolean }> {
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { retracted: false };
+    }
+
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, userId, sessionPhoneNumber },
+    });
+
+    if (!message) {
+      return { retracted: false };
+    }
+
+    // Can only retract outgoing messages with whatsappMessageId
+    if (
+      message.direction !== ChatMessageDirection.OUTGOING ||
+      !message.whatsappMessageId
+    ) {
+      return { retracted: false };
+    }
+
+    try {
+      await this.whatsAppService.revokeMessage(
+        userId,
+        message.phoneNumber,
+        message.whatsappMessageId,
+      );
+
+      // Update message status to indicate it was retracted
+      await this.chatMessageRepository.update(messageId, {
+        body: '',
+        status: ChatMessageStatus.FAILED, // Use FAILED to indicate retracted
+        messageType: 'retracted',
+      });
+
+      // Emit message retracted event
+      this.whatsAppGateway.server
+        .to(`user:${userId}`)
+        .emit('chat:message-retracted', {
+          messageId,
+          phoneNumber: message.phoneNumber,
+        });
+
+      return { retracted: true };
+    } catch (error) {
+      this.logger.error(`Failed to retract message ${messageId}: ${error}`);
+      return { retracted: false };
+    }
+  }
+
+  /**
+   * Pin a conversation
+   */
+  async pinConversation(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{ pinned: boolean }> {
+    const normalized = this.normalizePhoneNumber(phoneNumber);
+
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { pinned: false };
+    }
+
+    // Check if already pinned
+    const existing = await this.pinnedConversationRepository.findOne({
+      where: { userId, sessionPhoneNumber, phoneNumber: normalized },
+    });
+
+    if (existing) {
+      return { pinned: true }; // Already pinned
+    }
+
+    const pinned = this.pinnedConversationRepository.create({
+      userId,
+      sessionPhoneNumber,
+      phoneNumber: normalized,
+    });
+
+    await this.pinnedConversationRepository.save(pinned);
+
+    // Emit pin event
+    this.whatsAppGateway.server
+      .to(`user:${userId}`)
+      .emit('chat:conversation-pinned', {
+        phoneNumber: normalized,
+        isPinned: true,
+      });
+
+    return { pinned: true };
+  }
+
+  /**
+   * Unpin a conversation
+   */
+  async unpinConversation(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{ unpinned: boolean }> {
+    const normalized = this.normalizePhoneNumber(phoneNumber);
+
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { unpinned: false };
+    }
+
+    const result = await this.pinnedConversationRepository.delete({
+      userId,
+      sessionPhoneNumber,
+      phoneNumber: normalized,
+    });
+
+    if (result.affected && result.affected > 0) {
+      // Emit unpin event
+      this.whatsAppGateway.server
+        .to(`user:${userId}`)
+        .emit('chat:conversation-pinned', {
+          phoneNumber: normalized,
+          isPinned: false,
+        });
+
+      return { unpinned: true };
+    }
+
+    return { unpinned: false };
   }
 
   private normalizePhoneNumber(phone: string): string {

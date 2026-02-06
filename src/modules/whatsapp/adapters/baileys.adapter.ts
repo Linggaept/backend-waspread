@@ -91,6 +91,44 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     return Array.from(this.contacts.values());
   }
 
+  async getContactByPhone(phoneNumber: string): Promise<ContactInfo | null> {
+    // Normalize phone number
+    let normalized = phoneNumber.replace(/\D/g, '');
+    if (normalized.startsWith('0')) {
+      normalized = '62' + normalized.substring(1);
+    }
+
+    // Try to find in contacts map
+    for (const contact of this.contacts.values()) {
+      const contactPhone = contact.phoneNumber.replace(/\D/g, '');
+      if (contactPhone === normalized) {
+        return contact;
+      }
+    }
+
+    return null;
+  }
+
+  async revokeMessage(chatId: string, messageId: string): Promise<void> {
+    if (!this.sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    // Format JID if needed
+    let jid = chatId;
+    if (!jid.includes('@')) {
+      jid = `${chatId}@s.whatsapp.net`;
+    }
+
+    await this.sock.sendMessage(jid, {
+      delete: {
+        remoteJid: jid,
+        fromMe: true,
+        id: messageId,
+      },
+    });
+  }
+
   private setupEvents(saveCreds: () => Promise<void>): void {
     if (!this.sock || !this.config) return;
 

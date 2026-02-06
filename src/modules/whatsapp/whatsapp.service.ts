@@ -1006,4 +1006,95 @@ export class WhatsAppService implements OnModuleDestroy {
 
     return { registered, notRegistered };
   }
+
+  /**
+   * Get contact info by phone number (for pushName lookup)
+   */
+  async getContactByPhone(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{
+    phoneNumber: string;
+    name: string | null;
+    pushname: string | null;
+  } | null> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return null;
+    }
+
+    try {
+      const contact = await instance.adapter.getContactByPhone(phoneNumber);
+      return contact
+        ? {
+            phoneNumber: contact.phoneNumber,
+            name: contact.name,
+            pushname: contact.pushname,
+          }
+        : null;
+    } catch (error) {
+      this.logger.warn(`Failed to get contact for ${phoneNumber}: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get multiple contacts' pushNames in bulk
+   */
+  async getContactsPushNames(
+    userId: string,
+    phoneNumbers: string[],
+  ): Promise<Record<string, string | null>> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return {};
+    }
+
+    const result: Record<string, string | null> = {};
+
+    try {
+      const contacts = await instance.adapter.getContacts();
+      const contactMap = new Map<string, string | null>();
+
+      // Build a map of normalized phone -> pushname
+      for (const contact of contacts) {
+        let normalized = contact.phoneNumber.replace(/\D/g, '');
+        if (normalized.startsWith('0')) {
+          normalized = '62' + normalized.substring(1);
+        }
+        contactMap.set(normalized, contact.pushname || contact.name);
+      }
+
+      // Look up each requested phone number
+      for (const phone of phoneNumbers) {
+        let normalized = phone.replace(/\D/g, '');
+        if (normalized.startsWith('0')) {
+          normalized = '62' + normalized.substring(1);
+        }
+        result[phone] = contactMap.get(normalized) || null;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to get contacts pushNames: ${error}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Revoke/delete a message for everyone
+   */
+  async revokeMessage(
+    userId: string,
+    phoneNumber: string,
+    messageId: string,
+  ): Promise<void> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    const chatId = this.formatPhoneNumber(phoneNumber);
+    await instance.adapter.revokeMessage(chatId, messageId);
+    this.updateActivity(userId);
+  }
 }

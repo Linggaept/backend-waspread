@@ -81,3 +81,17 @@ export class ChatSendMediaDto {
   @IsString()
   mediaType?: string;
 }
+
+export class DeleteMessageDto {
+  @ApiProperty({ description: 'Message ID to delete' })
+  @IsString()
+  @IsNotEmpty()
+  messageId: string;
+}
+
+export class RetractMessageDto {
+  @ApiProperty({ description: 'Message ID to retract (delete for everyone)' })
+  @IsString()
+  @IsNotEmpty()
+  messageId: string;
+}

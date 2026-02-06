@@ -68,6 +68,9 @@ export interface IWhatsAppClientAdapter {
   onWhatsApp(jids: string[]): Promise<Array<{ jid: string; exists: boolean }>>;
 
   getContacts(): Promise<ContactInfo[]>;
+  getContactByPhone(phoneNumber: string): Promise<ContactInfo | null>;
+
+  revokeMessage(chatId: string, messageId: string): Promise<void>;
 
   requestPairingCode(phoneNumber: string): Promise<string>;
 }
