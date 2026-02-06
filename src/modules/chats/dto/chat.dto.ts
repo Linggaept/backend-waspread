@@ -25,7 +25,10 @@ export class ConversationQueryDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Search by phone number or message body' })
+  @ApiPropertyOptional({
+    description:
+      'Search by phone number, message body, contact name, or pushName',
+  })
   @IsOptional()
   @IsString()
   search?: string;

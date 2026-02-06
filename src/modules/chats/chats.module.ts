@@ -6,6 +6,7 @@ import * as path from 'path';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
+import { Contact } from '../../database/entities/contact.entity';
 import { ChatsService } from './chats.service';
 import { ChatsController } from './chats.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -15,7 +16,7 @@ import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ChatMessage, BlastMessage, PinnedConversation]),
+    TypeOrmModule.forFeature([ChatMessage, BlastMessage, PinnedConversation, Contact]),
     WhatsAppModule,
     UploadsModule,
     MulterModule.register({

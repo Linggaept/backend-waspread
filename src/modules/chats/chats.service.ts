@@ -18,6 +18,7 @@ import {
 } from '../../database/entities/chat-message.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
+import { Contact } from '../../database/entities/contact.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import type { IncomingMessage } from '../whatsapp/adapters/whatsapp-client.interface';
@@ -34,6 +35,8 @@ export class ChatsService implements OnModuleInit {
     private readonly blastMessageRepository: Repository<BlastMessage>,
     @InjectRepository(PinnedConversation)
     private readonly pinnedConversationRepository: Repository<PinnedConversation>,
+    @InjectRepository(Contact)
+    private readonly contactRepository: Repository<Contact>,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
@@ -263,6 +266,29 @@ export class ChatsService implements OnModuleInit {
       return { data: [], total: 0, page, limit };
     }
 
+    // If searching, also include contacts without chat history
+    let contactOnlyResults: Array<{
+      phoneNumber: string;
+      name?: string;
+      waName?: string;
+    }> = [];
+
+    if (search) {
+      // Find contacts matching search that may not have chat history
+      const matchingContacts = await this.contactRepository
+        .createQueryBuilder('contact')
+        .select(['contact.phoneNumber', 'contact.name', 'contact.waName'])
+        .where('contact.userId = :userId', { userId })
+        .andWhere('contact.isActive = true')
+        .andWhere(
+          '(contact.phoneNumber ILIKE :search OR contact.name ILIKE :search OR contact."waName" ILIKE :search)',
+          { search: `%${search}%` },
+        )
+        .getMany();
+
+      contactOnlyResults = matchingContacts;
+    }
+
     // Subquery to get latest message per phone number (filtered by session)
     const subQuery = this.chatMessageRepository
       .createQueryBuilder('sub')
@@ -272,7 +298,7 @@ export class ChatsService implements OnModuleInit {
       .andWhere('sub.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
       .groupBy('sub.phoneNumber');
 
-    // Main query with latest message details
+    // Main query with latest message details + LEFT JOIN contacts for search
     let qb = this.chatMessageRepository
       .createQueryBuilder('msg')
       .innerJoin(
@@ -280,24 +306,33 @@ export class ChatsService implements OnModuleInit {
         'latest',
         'msg.phoneNumber = latest."phoneNumber" AND msg.timestamp = latest."maxTimestamp"',
       )
+      .leftJoin(
+        Contact,
+        'contact',
+        'contact.phoneNumber = msg.phoneNumber AND contact.userId = msg.userId',
+      )
       .setParameters(subQuery.getParameters())
       .where('msg.userId = :userId', { userId })
       .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber });
 
     if (search) {
+      // Search by: phone number, message body, contact name, contact waName (pushName)
       qb = qb.andWhere(
-        '(msg.phoneNumber ILIKE :search OR msg.body ILIKE :search)',
+        '(msg.phoneNumber ILIKE :search OR msg.body ILIKE :search OR contact.name ILIKE :search OR contact."waName" ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    const total = await qb.getCount();
+    const chatTotal = await qb.getCount();
 
     const messages = await qb
       .orderBy('msg.timestamp', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
+
+    // Get phone numbers that already have chat history
+    const chatPhoneNumbers = new Set(messages.map((m) => m.phoneNumber));
 
     // Get unread counts per conversation
     const phoneNumbers = messages.map((m) => m.phoneNumber);
@@ -361,33 +396,103 @@ export class ChatsService implements OnModuleInit {
     });
     const pinnedSet = new Set(pinnedConvos.map((p) => p.phoneNumber));
 
-    // Get pushNames for all phone numbers
-    const pushNames = await this.whatsAppService.getContactsPushNames(
+    // Get contact info from database (name, waName)
+    let contactsMap: Record<string, { name?: string; waName?: string }> = {};
+    if (phoneNumbers.length > 0) {
+      const contacts = await this.contactRepository.find({
+        where: { userId, phoneNumber: In(phoneNumbers) },
+        select: ['phoneNumber', 'name', 'waName'],
+      });
+      contactsMap = contacts.reduce(
+        (acc, c) => {
+          acc[c.phoneNumber] = { name: c.name, waName: c.waName };
+          return acc;
+        },
+        {} as Record<string, { name?: string; waName?: string }>,
+      );
+    }
+
+    // Get pushNames from WhatsApp (as fallback)
+    const waPushNames = await this.whatsAppService.getContactsPushNames(
       userId,
       phoneNumbers,
     );
 
-    const data = messages.map((msg) => ({
-      phoneNumber: msg.phoneNumber,
-      pushName: pushNames[msg.phoneNumber] || null,
-      isPinned: pinnedSet.has(msg.phoneNumber),
+    // Build data from chat messages
+    const data: Array<{
+      phoneNumber: string;
+      pushName: string | null;
+      contactName: string | null;
+      isPinned: boolean;
       lastMessage: {
-        id: msg.id,
-        body: msg.body,
-        direction: msg.direction,
-        hasMedia: msg.hasMedia,
-        mediaType: msg.mediaType,
-        timestamp: msg.timestamp,
-      },
-      unreadCount: unreadCounts[msg.phoneNumber] || 0,
-      campaign: blastLabels[msg.phoneNumber] || null,
-    }));
+        id: string;
+        body: string;
+        direction: string;
+        hasMedia: boolean;
+        mediaType?: string;
+        timestamp: Date;
+      } | null;
+      unreadCount: number;
+      campaign: { blastId: string; blastName: string } | null;
+    }> = messages.map((msg) => {
+      const contactInfo = contactsMap[msg.phoneNumber] || {};
+      // Priority: contact.name > contact.waName > WA pushName
+      const displayName =
+        contactInfo.name || contactInfo.waName || waPushNames[msg.phoneNumber] || null;
 
-    // Sort: pinned first, then by timestamp
+      return {
+        phoneNumber: msg.phoneNumber,
+        pushName: displayName,
+        contactName: contactInfo.name || null,
+        isPinned: pinnedSet.has(msg.phoneNumber),
+        lastMessage: {
+          id: msg.id,
+          body: msg.body,
+          direction: msg.direction,
+          hasMedia: msg.hasMedia,
+          mediaType: msg.mediaType,
+          timestamp: msg.timestamp,
+        },
+        unreadCount: unreadCounts[msg.phoneNumber] || 0,
+        campaign: blastLabels[msg.phoneNumber] || null,
+      };
+    });
+
+    // Add contacts without chat history (only when searching)
+    if (search && contactOnlyResults.length > 0) {
+      for (const contact of contactOnlyResults) {
+        // Skip if already in chat results
+        if (chatPhoneNumbers.has(contact.phoneNumber)) {
+          continue;
+        }
+
+        data.push({
+          phoneNumber: contact.phoneNumber,
+          pushName: contact.name || contact.waName || null,
+          contactName: contact.name || null,
+          isPinned: pinnedSet.has(contact.phoneNumber),
+          lastMessage: null, // No chat history
+          unreadCount: 0,
+          campaign: null,
+        });
+      }
+    }
+
+    // Calculate total including contacts without chat
+    const contactsWithoutChat = search
+      ? contactOnlyResults.filter((c) => !chatPhoneNumbers.has(c.phoneNumber)).length
+      : 0;
+    const total = chatTotal + contactsWithoutChat;
+
+    // Sort: pinned first, then by timestamp (contacts without chat go last)
     data.sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
-      return new Date(b.lastMessage.timestamp).getTime() - new Date(a.lastMessage.timestamp).getTime();
+      // Contacts without chat history go to the end
+      if (!a.lastMessage && b.lastMessage) return 1;
+      if (a.lastMessage && !b.lastMessage) return -1;
+      if (!a.lastMessage && !b.lastMessage) return 0;
+      return new Date(b.lastMessage!.timestamp).getTime() - new Date(a.lastMessage!.timestamp).getTime();
     });
 
     return { data, total, page, limit };
@@ -407,8 +512,14 @@ export class ChatsService implements OnModuleInit {
       return { data: [], total: 0, page, limit, contact: null };
     }
 
-    // Get contact info (pushName) for this phone number
-    const contact = await this.whatsAppService.getContactByPhone(userId, normalized);
+    // Get contact info from database first
+    const dbContact = await this.contactRepository.findOne({
+      where: { userId, phoneNumber: normalized },
+      select: ['name', 'waName'],
+    });
+
+    // Get contact info (pushName) from WhatsApp as fallback
+    const waContact = await this.whatsAppService.getContactByPhone(userId, normalized);
 
     // Check if conversation is pinned
     const pinnedConvo = await this.pinnedConversationRepository.findOne({
@@ -457,6 +568,14 @@ export class ChatsService implements OnModuleInit {
       blastName: msg.blast?.name || null,
     }));
 
+    // Priority: dbContact.name > dbContact.waName > waContact.pushname > waContact.name
+    const displayName =
+      dbContact?.name ||
+      dbContact?.waName ||
+      waContact?.pushname ||
+      waContact?.name ||
+      null;
+
     return {
       data,
       total,
@@ -464,7 +583,8 @@ export class ChatsService implements OnModuleInit {
       limit,
       contact: {
         phoneNumber: normalized,
-        pushName: contact?.pushname || contact?.name || null,
+        pushName: displayName,
+        contactName: dbContact?.name || null,
         isPinned: !!pinnedConvo,
       },
     };
