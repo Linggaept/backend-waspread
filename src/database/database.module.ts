@@ -16,6 +16,8 @@ import { Notification } from './entities/notification.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { PinnedConversation } from './entities/pinned-conversation.entity';
 import { UserSettings } from './entities/user-settings.entity';
+import { AiKnowledgeBase } from './entities/ai-knowledge-base.entity';
+import { AiSettings } from './entities/ai-settings.entity';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { UserSettings } from './entities/user-settings.entity';
           ChatMessage,
           PinnedConversation,
           UserSettings,
+          AiKnowledgeBase,
+          AiSettings,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!

@@ -5,7 +5,7 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { SettingsService } from './settings.service';
@@ -41,6 +41,7 @@ export class SettingsController {
 
   @Patch()
   @ApiOperation({ summary: 'Update user settings' })
+  @ApiBody({ type: UpdateSettingsDto })
   @ApiResponse({ status: 200, description: 'Settings updated' })
   async updateSettings(
     @CurrentUser('id') userId: string,

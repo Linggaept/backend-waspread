@@ -9,3 +9,5 @@ export * from './password-reset.entity';
 export * from './audit-log.entity';
 export * from './notification.entity';
 export * from './chat-message.entity';
+export * from './ai-knowledge-base.entity';
+export * from './ai-settings.entity';

@@ -48,6 +48,7 @@ npm run docker:logs             # Follow logs
 - `blasts/` - Bulk message campaigns with BullMQ queue processing (`processors/blast.processor.ts`)
 - `chats/` - Conversation management with full message history, bidirectional messaging, and blast campaign linking
 - `copywriting/` - AI-powered marketing message generation using Google Gemini (multi-tone, multi-variation)
+- `ai/` - AI-powered reply suggestions with knowledge base (per-user business context, tone settings, keyword-based retrieval)
 - `contacts/` - Contact list management for blast recipients
 - `templates/` - Message template management for reusable blast content
 - `uploads/` - File uploads with Cloudflare R2 storage and image compression (Sharp)
@@ -66,6 +67,8 @@ npm run docker:logs             # Follow logs
 - `blast.entity.ts` - Contains both Blast and BlastMessage entities, plus status enums (BlastStatus, MessageStatus, MessageErrorType)
 - BlastReply - Stores incoming replies to blast messages
 - ChatMessage - Full conversation history with direction (incoming/outgoing), optional blast linking, read status
+- AiSettings - Per-user AI configuration (tone, business context, enabled state)
+- AiKnowledgeBase - User's knowledge entries for AI context (categories: product, faq, promo, policy, custom)
 
 **Database Indexes** (important for query performance):
 - `blast_messages`: [blastId, status]
@@ -73,6 +76,7 @@ npm run docker:logs             # Follow logs
 - `contacts`: [userId, phoneNumber]
 - `notifications`: [userId, isRead], [userId, createdAt]
 - `chat_messages`: [userId, phoneNumber, timestamp], [userId, phoneNumber], [userId, timestamp], unique on [whatsappMessageId] where not null
+- `ai_knowledge_base`: [userId, isActive], [userId, category]
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -123,6 +127,15 @@ npm run docker:logs             # Follow logs
 - Tone options: FRIENDLY, URGENT, PROFESSIONAL, CASUAL, EXCITED
 - Uses different persuasion techniques per variation (scarcity, social proof, benefit-focused, etc.)
 - Optimized for 50-300 character messages
+
+**AI Reply Suggestions** (optional, requires `GEMINI_API_KEY`):
+- Per-user knowledge base with categories (product, faq, promo, policy, custom)
+- Keyword-based retrieval from knowledge entries to provide context
+- Uses last 5 chat messages for conversation context
+- Tone settings: FORMAL, CASUAL, FRIENDLY
+- Business name/description configurable per user
+- Bulk import knowledge via Excel/CSV (columns: title, content, category, keywords)
+- Returns 3 suggested replies per request
 
 **API Response Format**:
 All responses wrapped via `TransformInterceptor` using `ApiResponse<T>`:

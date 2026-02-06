@@ -24,6 +24,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { CopywritingModule } from './modules/copywriting/copywriting.module';
 import { ChatsModule } from './modules/chats/chats.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { AiModule } from './modules/ai/ai.module';
 import {
   databaseConfig,
   redisConfig,
@@ -88,6 +89,7 @@ import { validate } from './config/env.validation';
     CopywritingModule,
     ChatsModule,
     SettingsModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [
