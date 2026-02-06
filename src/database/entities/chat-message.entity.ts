@@ -23,6 +23,9 @@ export enum ChatMessageStatus {
 }
 
 @Entity('chat_messages')
+@Index(['userId', 'sessionPhoneNumber', 'phoneNumber', 'timestamp'])
+@Index(['userId', 'sessionPhoneNumber', 'phoneNumber'])
+@Index(['userId', 'sessionPhoneNumber', 'timestamp'])
 @Index(['userId', 'phoneNumber', 'timestamp'])
 @Index(['userId', 'phoneNumber'])
 @Index(['userId', 'timestamp'])
@@ -37,6 +40,9 @@ export class ChatMessage {
 
   @Column()
   userId: string;
+
+  @Column({ nullable: true })
+  sessionPhoneNumber: string;
 
   @Column()
   phoneNumber: string;

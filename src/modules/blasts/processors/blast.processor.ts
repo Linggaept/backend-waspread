@@ -169,9 +169,12 @@ export class BlastProcessor extends WorkerHost {
 
       // Store in chat_messages for inbox conversations
       const normalizedPhone = this.normalizePhoneNumber(phoneNumber);
+      const session = await this.whatsappService.getSessionStatus(userId);
+      const sessionPhoneNumber = session?.phoneNumber || undefined;
       try {
         const chatMsg = this.chatMessageRepository.create({
           userId,
+          sessionPhoneNumber,
           phoneNumber: normalizedPhone,
           direction: ChatMessageDirection.OUTGOING,
           body: message,

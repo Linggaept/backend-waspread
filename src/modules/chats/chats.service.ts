@@ -24,6 +24,14 @@ export class ChatsService {
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
 
+  /**
+   * Get the current WA session's phone number for the user
+   */
+  private async getSessionPhoneNumber(userId: string): Promise<string | null> {
+    const session = await this.whatsAppService.getSessionStatus(userId);
+    return session?.phoneNumber || null;
+  }
+
   async handleMessageUpsert(
     userId: string,
     message: IncomingMessage,
@@ -37,6 +45,13 @@ export class ChatsService {
     if (!rawPhone) return;
 
     const phoneNumber = rawPhone;
+
+    // Get the session phone number (the WA account that's connected)
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      this.logger.warn(`No session phone number found for user ${userId}, skipping message store`);
+      return;
+    }
 
     // Dedup: skip if already stored (handles sendTextMessage + blast duplicates)
     const existing = await this.chatMessageRepository.findOne({
@@ -92,6 +107,7 @@ export class ChatsService {
 
     const chatMessage = this.chatMessageRepository.create({
       userId,
+      sessionPhoneNumber,
       phoneNumber,
       direction,
       body: message.body || '',
@@ -132,6 +148,17 @@ export class ChatsService {
           mediaType: saved.mediaType,
           timestamp: saved.timestamp,
         });
+
+      // Emit unread count update for incoming messages
+      if (direction === ChatMessageDirection.INCOMING) {
+        const { unreadCount } = await this.getUnreadCount(userId);
+        this.whatsAppGateway.server
+          .to(`user:${userId}`)
+          .emit('chat:unread-update', {
+            unreadCount,
+            phoneNumber: saved.phoneNumber,
+          });
+      }
     } catch (error: any) {
       // Unique constraint violation = duplicate, ignore
       if (error?.code === '23505') return;
@@ -145,12 +172,19 @@ export class ChatsService {
   ) {
     const { page = 1, limit = 20, search } = query;
 
-    // Subquery to get latest message per phone number
+    // Get current session phone number to filter chats
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { data: [], total: 0, page, limit };
+    }
+
+    // Subquery to get latest message per phone number (filtered by session)
     const subQuery = this.chatMessageRepository
       .createQueryBuilder('sub')
       .select('sub.phoneNumber', 'phoneNumber')
       .addSelect('MAX(sub.timestamp)', 'maxTimestamp')
       .where('sub.userId = :userId', { userId })
+      .andWhere('sub.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
       .groupBy('sub.phoneNumber');
 
     // Main query with latest message details
@@ -162,7 +196,8 @@ export class ChatsService {
         'msg.phoneNumber = latest."phoneNumber" AND msg.timestamp = latest."maxTimestamp"',
       )
       .setParameters(subQuery.getParameters())
-      .where('msg.userId = :userId', { userId });
+      .where('msg.userId = :userId', { userId })
+      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber });
 
     if (search) {
       qb = qb.andWhere(
@@ -189,6 +224,7 @@ export class ChatsService {
         .select('msg.phoneNumber', 'phoneNumber')
         .addSelect('COUNT(*)', 'count')
         .where('msg.userId = :userId', { userId })
+        .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
         .andWhere('msg.phoneNumber IN (:...phoneNumbers)', { phoneNumbers })
         .andWhere('msg.direction = :direction', {
           direction: ChatMessageDirection.INCOMING,
@@ -216,6 +252,7 @@ export class ChatsService {
         .addSelect('blast.name', 'blastName')
         .innerJoin('msg.blast', 'blast')
         .where('msg.userId = :userId', { userId })
+        .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
         .andWhere('msg.phoneNumber IN (:...phoneNumbers)', { phoneNumbers })
         .andWhere('msg.blastId IS NOT NULL')
         .orderBy('msg.timestamp', 'DESC')
@@ -257,8 +294,14 @@ export class ChatsService {
     const { page = 1, limit = 50 } = query;
     const normalized = this.normalizePhoneNumber(phoneNumber);
 
+    // Get current session phone number to filter chats
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { data: [], total: 0, page, limit };
+    }
+
     const [messages, total] = await this.chatMessageRepository.findAndCount({
-      where: { userId, phoneNumber: normalized },
+      where: { userId, sessionPhoneNumber, phoneNumber: normalized },
       relations: ['blast'],
       order: { timestamp: 'DESC' },
       skip: (page - 1) * limit,
@@ -306,9 +349,16 @@ export class ChatsService {
   ): Promise<{ updated: number }> {
     const normalized = this.normalizePhoneNumber(phoneNumber);
 
+    // Get current session phone number
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { updated: 0 };
+    }
+
     const result = await this.chatMessageRepository.update(
       {
         userId,
+        sessionPhoneNumber,
         phoneNumber: normalized,
         direction: ChatMessageDirection.INCOMING,
         isRead: false,
@@ -316,7 +366,29 @@ export class ChatsService {
       { isRead: true },
     );
 
-    return { updated: result.affected || 0 };
+    const updated = result.affected || 0;
+
+    // Emit WebSocket events if any messages were marked as read
+    if (updated > 0) {
+      // Emit conversation read event
+      this.whatsAppGateway.server
+        .to(`user:${userId}`)
+        .emit('chat:conversation-read', {
+          phoneNumber: normalized,
+          updatedCount: updated,
+        });
+
+      // Emit updated unread count
+      const { unreadCount } = await this.getUnreadCount(userId);
+      this.whatsAppGateway.server
+        .to(`user:${userId}`)
+        .emit('chat:unread-update', {
+          unreadCount,
+          phoneNumber: normalized,
+        });
+    }
+
+    return { updated };
   }
 
   async sendTextMessage(
@@ -325,6 +397,9 @@ export class ChatsService {
     message: string,
   ): Promise<ChatMessage> {
     const normalized = this.normalizePhoneNumber(phoneNumber);
+
+    // Get current session phone number
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
 
     // Send via WhatsApp
     const result = await this.whatsAppService.sendMessage(
@@ -336,6 +411,7 @@ export class ChatsService {
     // Store the outgoing message with normalized phone
     const chatMessage = this.chatMessageRepository.create({
       userId,
+      sessionPhoneNumber: sessionPhoneNumber || undefined,
       phoneNumber: normalized,
       direction: ChatMessageDirection.OUTGOING,
       body: message,
@@ -371,6 +447,9 @@ export class ChatsService {
   ): Promise<ChatMessage> {
     const normalized = this.normalizePhoneNumber(phoneNumber);
 
+    // Get current session phone number
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+
     // Send via WhatsApp
     const result = await this.whatsAppService.sendMessageWithMedia(
       userId,
@@ -383,6 +462,7 @@ export class ChatsService {
     // Store the outgoing message with normalized phone
     const chatMessage = this.chatMessageRepository.create({
       userId,
+      sessionPhoneNumber: sessionPhoneNumber || undefined,
       phoneNumber: normalized,
       direction: ChatMessageDirection.OUTGOING,
       body: message || '',
@@ -412,9 +492,16 @@ export class ChatsService {
   }
 
   async getUnreadCount(userId: string): Promise<{ unreadCount: number }> {
+    // Get current session phone number
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) {
+      return { unreadCount: 0 };
+    }
+
     const count = await this.chatMessageRepository.count({
       where: {
         userId,
+        sessionPhoneNumber,
         direction: ChatMessageDirection.INCOMING,
         isRead: false,
       },

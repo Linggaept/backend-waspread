@@ -46,6 +46,8 @@ npm run docker:logs             # Follow logs
 - `subscriptions/` - User subscription lifecycle, quota tracking
 - `whatsapp/` - WhatsApp session management via Baileys (WebSocket-based), adapter pattern in `adapters/`, WebSocket gateway for real-time events
 - `blasts/` - Bulk message campaigns with BullMQ queue processing (`processors/blast.processor.ts`)
+- `chats/` - Conversation management with full message history, bidirectional messaging, and blast campaign linking
+- `copywriting/` - AI-powered marketing message generation using Google Gemini (multi-tone, multi-variation)
 - `contacts/` - Contact list management for blast recipients
 - `templates/` - Message template management for reusable blast content
 - `uploads/` - File uploads with Cloudflare R2 storage and image compression (Sharp)
@@ -63,12 +65,14 @@ npm run docker:logs             # Follow logs
 - User, Package, Payment, Subscription, WhatsAppSession, Contact, Template, PasswordReset, AuditLog, Notification
 - `blast.entity.ts` - Contains both Blast and BlastMessage entities, plus status enums (BlastStatus, MessageStatus, MessageErrorType)
 - BlastReply - Stores incoming replies to blast messages
+- ChatMessage - Full conversation history with direction (incoming/outgoing), optional blast linking, read status
 
 **Database Indexes** (important for query performance):
 - `blast_messages`: [blastId, status]
 - `blasts`: [userId, status], [userId, createdAt]
 - `contacts`: [userId, phoneNumber]
 - `notifications`: [userId, isRead], [userId, createdAt]
+- `chat_messages`: [userId, phoneNumber, timestamp], [userId, phoneNumber], [userId, timestamp], unique on [whatsappMessageId] where not null
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -93,9 +97,10 @@ npm run docker:logs             # Follow logs
 - Supports both QR scan and pairing code connection (`POST /whatsapp/connect-pairing`)
 - Auto-disconnect idle sessions after `WA_IDLE_TIMEOUT_MINUTES` (checked every minute)
 - Blasting status flag prevents auto-disconnect during active blasts
-- WebSocket gateway (`whatsapp.gateway.ts`) at namespace `/whatsapp` emits: `qr`, `status`, `blast-started`, `blast-progress`, `blast-completed`, `blast-reply`, `quota-warning`, `notification`
+- WebSocket gateway (`whatsapp.gateway.ts`) at namespace `/whatsapp` emits: `qr`, `status`, `blast-started`, `blast-progress`, `blast-completed`, `blast-reply`, `quota-warning`, `notification`, `chat:message`, `chat:message-sent`
 - Media caching (1 hour TTL) for optimized media sending from local or R2 URLs
 - Contact store populated from Baileys events (`contacts.upsert`, `contacts.update`)
+- Message store handler pattern: `ChatsModule` registers itself to receive all incoming/outgoing messages for persistence
 
 **Image Storage Pipeline**:
 - Images uploaded via `UploadsModule`, compressed with Sharp
@@ -106,6 +111,18 @@ npm run docker:logs             # Follow logs
 - Monthly quota with daily limits
 - Auto-deduction on blast start
 - Validation before every blast operation
+
+**Chat-Blast Integration**:
+- Outgoing blast messages automatically stored in ChatMessage with `blastId` reference
+- Incoming replies linked to original campaign via BlastMessage lookup
+- Conversation view groups all messages (blast + manual) by phone number
+- Real-time WebSocket updates for both directions
+
+**AI Copywriting** (optional, requires `GEMINI_API_KEY`):
+- Generates 1-5 WhatsApp marketing message variations from a prompt
+- Tone options: FRIENDLY, URGENT, PROFESSIONAL, CASUAL, EXCITED
+- Uses different persuasion techniques per variation (scarcity, social proof, benefit-focused, etc.)
+- Optimized for 50-300 character messages
 
 **API Response Format**:
 All responses wrapped via `TransformInterceptor` using `ApiResponse<T>`:
@@ -130,6 +147,8 @@ Environment variables configured via `.env` (see `.env.example`):
 - `R2_*` - Cloudflare R2 storage (falls back to local `uploads/` if not set)
 - `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
+- `GEMINI_API_KEY` - Google Gemini API key for AI copywriting (feature disabled if not set)
+- `GEMINI_MODEL` - Gemini model name (default: `gemini-2.0-flash`)
 
 **API Endpoints:**
 - API Base: `http://localhost:{PORT}/api`
