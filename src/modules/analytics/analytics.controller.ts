@@ -168,6 +168,17 @@ export class AnalyticsController {
 
   // ==================== AI Insights ====================
 
+  @Get('insights/patterns')
+  @ApiOperation({ summary: 'Get aggregate patterns from all analyzed conversations' })
+  @ApiResponse({ status: 200, description: 'Patterns retrieved' })
+  async getPatterns(
+    @CurrentUser('id') userId: string,
+    @Query() query: AnalyticsQueryDto,
+  ) {
+    const dateRange = this.getDateRange(query);
+    return this.closingInsightService.getPatterns(userId, dateRange);
+  }
+
   @Get('insights/:phoneNumber')
   @ApiOperation({ summary: 'Get AI insight for a conversation' })
   @ApiParam({ name: 'phoneNumber', description: 'Phone number (e.g., 628123456789)' })
@@ -198,17 +209,6 @@ export class AnalyticsController {
     @Param('phoneNumber') phoneNumber: string,
   ) {
     return this.closingInsightService.reanalyze(userId, phoneNumber);
-  }
-
-  @Get('insights/patterns')
-  @ApiOperation({ summary: 'Get aggregate patterns from all analyzed conversations' })
-  @ApiResponse({ status: 200, description: 'Patterns retrieved' })
-  async getPatterns(
-    @CurrentUser('id') userId: string,
-    @Query() query: AnalyticsQueryDto,
-  ) {
-    const dateRange = this.getDateRange(query);
-    return this.closingInsightService.getPatterns(userId, dateRange);
   }
 
   // ==================== Helper ====================
