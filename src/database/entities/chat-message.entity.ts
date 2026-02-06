@@ -16,10 +16,12 @@ export enum ChatMessageDirection {
 }
 
 export enum ChatMessageStatus {
-  PENDING = 'pending',
-  SENT = 'sent',
-  RECEIVED = 'received',
-  FAILED = 'failed',
+  PENDING = 'pending',      // ⏳ Sending...
+  SENT = 'sent',            // ✓ (1 check) - Sent to server
+  DELIVERED = 'delivered',  // ✓✓ (2 checks gray) - Delivered to device
+  READ = 'read',            // ✓✓ (2 checks blue) - Read by recipient
+  RECEIVED = 'received',    // For incoming messages
+  FAILED = 'failed',        // ✗ Failed to send
 }
 
 @Entity('chat_messages')
@@ -96,6 +98,9 @@ export class ChatMessage {
 
   @Column({ default: false })
   isRead: boolean;
+
+  @Column({ default: false })
+  isRetracted: boolean;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

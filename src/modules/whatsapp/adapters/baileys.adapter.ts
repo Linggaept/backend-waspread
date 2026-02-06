@@ -223,6 +223,49 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       }
     });
 
+    // Handle message status updates (sent, delivered, read)
+    sock.ev.on('messages.update', async (updates) => {
+      for (const update of updates) {
+        if (!update.key?.id || !update.key?.remoteJid) continue;
+
+        const updateStatus = update.update?.status;
+        if (updateStatus === undefined) continue;
+
+        // Map Baileys status codes to our status strings
+        // 1 = pending, 2 = sent (server ack), 3 = delivered, 4 = read
+        let status: 'sent' | 'delivered' | 'read' | 'failed' | undefined;
+        switch (updateStatus) {
+          case 2:
+            status = 'sent';
+            break;
+          case 3:
+            status = 'delivered';
+            break;
+          case 4:
+            status = 'read';
+            break;
+          default:
+            continue; // Skip other status codes
+        }
+
+        if (config.onMessageStatusUpdate) {
+          try {
+            const phoneNumber = update.key.remoteJid
+              .replace(/@s\.whatsapp\.net$/, '')
+              .replace(/@c\.us$/, '');
+
+            await config.onMessageStatusUpdate({
+              messageId: update.key.id,
+              remoteJid: phoneNumber,
+              status,
+            });
+          } catch (e) {
+            this.logger.warn(`onMessageStatusUpdate error: ${e}`);
+          }
+        }
+      }
+    });
+
     sock.ev.on('messaging-history.set', (history) => {
       const contacts = history.contacts || [];
       const chats = history.chats || [];

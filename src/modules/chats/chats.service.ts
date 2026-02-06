@@ -35,6 +35,57 @@ export class ChatsService {
     return session?.phoneNumber || null;
   }
 
+  /**
+   * Handle message status updates from WhatsApp (sent, delivered, read)
+   */
+  async handleMessageStatusUpdate(
+    userId: string,
+    whatsappMessageId: string,
+    phoneNumber: string,
+    status: 'sent' | 'delivered' | 'read' | 'failed',
+  ): Promise<void> {
+    // Map status string to enum
+    const statusMap: Record<string, ChatMessageStatus> = {
+      sent: ChatMessageStatus.SENT,
+      delivered: ChatMessageStatus.DELIVERED,
+      read: ChatMessageStatus.READ,
+      failed: ChatMessageStatus.FAILED,
+    };
+
+    const newStatus = statusMap[status];
+    if (!newStatus) return;
+
+    // Find and update the message
+    const message = await this.chatMessageRepository.findOne({
+      where: { whatsappMessageId, userId },
+    });
+
+    if (!message) return;
+
+    // Only update if new status is "higher" than current
+    const statusOrder = ['pending', 'sent', 'delivered', 'read'];
+    const currentIndex = statusOrder.indexOf(message.status);
+    const newIndex = statusOrder.indexOf(status);
+
+    if (newIndex <= currentIndex && status !== 'failed') return;
+
+    await this.chatMessageRepository.update(message.id, { status: newStatus });
+
+    this.logger.log(
+      `[STATUS] Message ${whatsappMessageId} status updated: ${message.status} → ${status}`,
+    );
+
+    // Emit WebSocket event for real-time UI update
+    this.whatsAppGateway.server
+      .to(`user:${userId}`)
+      .emit('chat:message-status', {
+        messageId: message.id,
+        whatsappMessageId,
+        phoneNumber: message.phoneNumber,
+        status,
+      });
+  }
+
   async handleMessageUpsert(
     userId: string,
     message: IncomingMessage,
@@ -352,6 +403,7 @@ export class ChatsService {
         'status',
         'timestamp',
         'isRead',
+        'isRetracted',
         'blastId',
       ],
     });
@@ -369,6 +421,7 @@ export class ChatsService {
       status: msg.status,
       timestamp: msg.timestamp,
       isRead: msg.isRead,
+      isRetracted: msg.isRetracted || false,
       blastId: msg.blastId || null,
       blastName: msg.blast?.name || null,
     }));
@@ -658,11 +711,9 @@ export class ChatsService {
         message.whatsappMessageId,
       );
 
-      // Update message status to indicate it was retracted
+      // Mark message as retracted (keep original body for reference)
       await this.chatMessageRepository.update(messageId, {
-        body: '',
-        status: ChatMessageStatus.FAILED, // Use FAILED to indicate retracted
-        messageType: 'retracted',
+        isRetracted: true,
       });
 
       // Emit message retracted event
@@ -671,6 +722,7 @@ export class ChatsService {
         .emit('chat:message-retracted', {
           messageId,
           phoneNumber: message.phoneNumber,
+          isRetracted: true,
         });
 
       return { retracted: true };

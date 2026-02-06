@@ -31,6 +31,16 @@ export interface MessageStoreHandler {
   handleMessageUpsert(userId: string, message: any): Promise<void>;
 }
 
+// Interface for message status update handler
+export interface MessageStatusHandler {
+  handleMessageStatusUpdate(
+    userId: string,
+    messageId: string,
+    phoneNumber: string,
+    status: 'sent' | 'delivered' | 'read' | 'failed',
+  ): Promise<void>;
+}
+
 interface ClientInstance {
   adapter: IWhatsAppClientAdapter;
   userId: string;
@@ -61,6 +71,7 @@ export class WhatsAppService implements OnModuleDestroy {
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private replyHandler: ReplyHandler | null = null;
   private messageStoreHandler: MessageStoreHandler | null = null;
+  private messageStatusHandler: MessageStatusHandler | null = null;
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -94,6 +105,11 @@ export class WhatsAppService implements OnModuleDestroy {
   setMessageStoreHandler(handler: MessageStoreHandler) {
     this.messageStoreHandler = handler;
     this.logger.log('Message store handler registered');
+  }
+
+  setMessageStatusHandler(handler: MessageStatusHandler) {
+    this.messageStatusHandler = handler;
+    this.logger.log('Message status handler registered');
   }
 
   private startIdleSessionCleanup() {
@@ -330,6 +346,20 @@ export class WhatsAppService implements OnModuleDestroy {
             }
           }
         },
+        onMessageStatusUpdate: async (update) => {
+          if (this.messageStatusHandler) {
+            try {
+              await this.messageStatusHandler.handleMessageStatusUpdate(
+                userId,
+                update.messageId,
+                update.remoteJid,
+                update.status,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message status handler: ${error}`);
+            }
+          }
+        },
       });
 
       return {
@@ -500,6 +530,20 @@ export class WhatsAppService implements OnModuleDestroy {
               );
             } catch (error) {
               this.logger.error(`Error in message store handler: ${error}`);
+            }
+          }
+        },
+        onMessageStatusUpdate: async (update) => {
+          if (this.messageStatusHandler) {
+            try {
+              await this.messageStatusHandler.handleMessageStatusUpdate(
+                userId,
+                update.messageId,
+                update.remoteJid,
+                update.status,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message status handler: ${error}`);
             }
           }
         },

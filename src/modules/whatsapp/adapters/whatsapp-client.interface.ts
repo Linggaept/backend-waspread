@@ -1,3 +1,9 @@
+export interface MessageStatusUpdate {
+  messageId: string;
+  remoteJid: string;
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+}
+
 export interface WhatsAppClientConfig {
   userId: string;
   authPath: string;
@@ -8,6 +14,7 @@ export interface WhatsAppClientConfig {
   onAuthFailure: (error: string) => void;
   onMessage: (message: IncomingMessage) => void;
   onMessageUpsert?: (message: IncomingMessage) => void | Promise<void>;
+  onMessageStatusUpdate?: (update: MessageStatusUpdate) => void | Promise<void>;
 }
 
 export interface SessionInfo {

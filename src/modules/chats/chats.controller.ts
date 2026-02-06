@@ -8,18 +8,22 @@ import {
   Body,
   UseGuards,
   Res,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import * as express from 'express';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ChatsService } from './chats.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { UploadsService } from '../uploads/uploads.service';
 import {
   ConversationQueryDto,
   ChatHistoryQueryDto,
   ChatSendMessageDto,
-  ChatSendMediaDto,
 } from './dto';
 
 @ApiTags('Chats')
@@ -30,6 +34,7 @@ export class ChatsController {
   constructor(
     private readonly chatsService: ChatsService,
     private readonly whatsAppService: WhatsAppService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   /**
@@ -92,19 +97,68 @@ export class ChatsController {
   }
 
   @Post('send-media')
+  @UseInterceptors(FileInterceptor('media'))
   @ApiOperation({ summary: 'Send message with media from inbox' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['phoneNumber', 'media'],
+      properties: {
+        phoneNumber: {
+          type: 'string',
+          description: 'Recipient phone number (e.g. 628123456789)',
+          example: '628123456789',
+        },
+        message: {
+          type: 'string',
+          description: 'Optional caption for the media',
+          example: 'Check this out!',
+        },
+        media: {
+          type: 'string',
+          format: 'binary',
+          description: 'Media file (image, video, audio, or document)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Media message sent' })
+  @ApiResponse({ status: 400, description: 'Invalid file or session not connected' })
   async sendMedia(
     @CurrentUser('id') userId: string,
-    @Body() dto: ChatSendMediaDto,
+    @Body('phoneNumber') phoneNumber: string,
+    @Body('message') message: string,
+    @UploadedFile() file: Express.Multer.File,
     @Res({ passthrough: true }) res: express.Response,
   ) {
     await this.setSessionHeader(res, userId);
+
+    if (!phoneNumber) {
+      throw new BadRequestException('phoneNumber is required');
+    }
+
+    if (!file) {
+      throw new BadRequestException('media file is required');
+    }
+
+    // Validate and get media type
+    const mediaType = this.uploadsService.validateMediaFile(file);
+
+    // Save file and get URL
+    const mediaUrl = await this.uploadsService.moveToUserDirectory(
+      file.path,
+      userId,
+      'media',
+      file.originalname,
+    );
+
     return this.chatsService.sendMediaMessage(
       userId,
-      dto.phoneNumber,
-      dto.message || '',
-      dto.mediaPath,
-      dto.mediaType,
+      phoneNumber,
+      message || '',
+      mediaUrl,
+      mediaType,
     );
   }
 

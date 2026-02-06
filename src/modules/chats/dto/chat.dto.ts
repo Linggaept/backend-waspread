@@ -60,28 +60,6 @@ export class ChatSendMessageDto {
   message: string;
 }
 
-export class ChatSendMediaDto {
-  @ApiProperty({ description: 'Recipient phone number (e.g. 628123456789)' })
-  @IsString()
-  @IsNotEmpty()
-  phoneNumber: string;
-
-  @ApiPropertyOptional({ description: 'Message caption' })
-  @IsOptional()
-  @IsString()
-  message?: string;
-
-  @ApiProperty({ description: 'Media file path or URL' })
-  @IsString()
-  @IsNotEmpty()
-  mediaPath: string;
-
-  @ApiPropertyOptional({ description: 'Media type: image, video, audio, document' })
-  @IsOptional()
-  @IsString()
-  mediaType?: string;
-}
-
 export class DeleteMessageDto {
   @ApiProperty({ description: 'Message ID to delete' })
   @IsString()
