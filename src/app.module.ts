@@ -26,6 +26,7 @@ import { ChatsModule } from './modules/chats/chats.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AiModule } from './modules/ai/ai.module';
 import { LeadsModule } from './modules/leads/leads.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import {
   databaseConfig,
   redisConfig,
@@ -92,6 +93,7 @@ import { validate } from './config/env.validation';
     SettingsModule,
     AiModule,
     LeadsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

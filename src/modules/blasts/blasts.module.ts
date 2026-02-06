@@ -17,6 +17,7 @@ import { TemplatesModule } from '../templates/templates.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ReplyDetectionService } from './services/reply-detection.service';
 import { BlastRepliesService } from './services/blast-replies.service';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { BlastRepliesService } from './services/blast-replies.service';
     ContactsModule,
     TemplatesModule,
     NotificationsModule,
+    AnalyticsModule,
   ],
   controllers: [BlastsController],
   providers: [

@@ -13,3 +13,5 @@ export * from './ai-knowledge-base.entity';
 export * from './ai-settings.entity';
 export * from './lead-score.entity';
 export * from './lead-score-settings.entity';
+export * from './conversation-funnel.entity';
+export * from './analytics-snapshot.entity';

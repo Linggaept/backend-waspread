@@ -19,6 +19,7 @@ import { User } from '../../../database/entities/user.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { FunnelTrackerService } from '../../analytics/services/funnel-tracker.service';
 
 export interface BlastJobData {
   blastId: string;
@@ -47,6 +48,7 @@ export class BlastProcessor extends WorkerHost {
     private readonly whatsappService: WhatsAppService,
     private readonly whatsappGateway: WhatsAppGateway,
     private readonly notificationsService: NotificationsService,
+    private readonly funnelTrackerService: FunnelTrackerService,
   ) {
     super();
   }
@@ -199,6 +201,17 @@ export class BlastProcessor extends WorkerHost {
       // Update blast counts
       await this.blastRepository.increment({ id: blastId }, 'sentCount', 1);
       await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
+
+      // Create/update funnel entry for this recipient (fire and forget)
+      const blastInfo = await this.blastRepository.findOne({
+        where: { id: blastId },
+        select: ['id', 'name'],
+      });
+      this.funnelTrackerService
+        .onBlastSent(userId, normalizedPhone, blastId, blastInfo?.name || 'Blast')
+        .catch((err) => {
+          this.logger.warn(`Failed to create funnel entry: ${err}`);
+        });
 
       this.logger.log(
         `Message ${messageId} sent successfully to ${phoneNumber}`,
