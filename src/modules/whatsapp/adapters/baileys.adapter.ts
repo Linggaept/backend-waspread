@@ -30,6 +30,10 @@ const PENDING_SEND_TTL_MS = 60_000;
 const SAVE_DEBOUNCE_MS = 5_000;
 const PENDING_CLEANUP_INTERVAL_MS = 30_000;
 
+// History sync config from ENV
+const SYNC_FULL_HISTORY = process.env.WA_SYNC_FULL_HISTORY === 'true';
+const SYNC_HISTORY_DAYS = parseInt(process.env.WA_SYNC_HISTORY_DAYS || '7', 10);
+
 export class BaileysAdapter implements IWhatsAppClientAdapter {
   private readonly logger = new Logger(BaileysAdapter.name);
   private sock: BaileysSocket | null = null;
@@ -72,6 +76,15 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       `Using WA version: ${version.join('.')}, isLatest: ${isLatest}`,
     );
 
+    // Calculate cutoff date for history sync
+    const historyCutoff = new Date();
+    historyCutoff.setDate(historyCutoff.getDate() - SYNC_HISTORY_DAYS);
+    const historyCutoffTimestamp = Math.floor(historyCutoff.getTime() / 1000);
+
+    this.logger.log(
+      `History sync config: fullSync=${SYNC_FULL_HISTORY}, days=${SYNC_HISTORY_DAYS}`,
+    );
+
     this.sock = makeWASocket({
       version,
       auth: state,
@@ -80,8 +93,25 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60000,
-      syncFullHistory: true,
-      shouldSyncHistoryMessage: () => true,
+      syncFullHistory: SYNC_FULL_HISTORY,
+      shouldSyncHistoryMessage: (msg) => {
+        // If full sync is enabled, sync all
+        if (SYNC_FULL_HISTORY) return true;
+
+        // Otherwise, only sync messages within the configured days
+        // msg is WAMessage type with messageTimestamp property
+        const msgTimestamp = (msg as any).messageTimestamp;
+        if (!msgTimestamp) return true; // Allow if no timestamp
+
+        const timestamp =
+          typeof msgTimestamp === 'number'
+            ? msgTimestamp
+            : typeof msgTimestamp === 'object' && msgTimestamp.low
+              ? msgTimestamp.low
+              : 0;
+
+        return timestamp >= historyCutoffTimestamp;
+      },
     });
 
     this.setupEvents(saveCreds);

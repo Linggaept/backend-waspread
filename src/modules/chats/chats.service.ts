@@ -1,6 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, LessThan } from 'typeorm';
+
+// Message retention config from ENV
+const MESSAGE_RETENTION_DAYS = parseInt(
+  process.env.CHAT_MESSAGE_RETENTION_DAYS || '30',
+  10,
+);
+const MESSAGE_CLEANUP_INTERVAL_HOURS = parseInt(
+  process.env.CHAT_CLEANUP_INTERVAL_HOURS || '24',
+  10,
+);
 import {
   ChatMessage,
   ChatMessageDirection,
@@ -13,8 +23,9 @@ import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import type { IncomingMessage } from '../whatsapp/adapters/whatsapp-client.interface';
 
 @Injectable()
-export class ChatsService {
+export class ChatsService implements OnModuleInit {
   private readonly logger = new Logger(ChatsService.name);
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectRepository(ChatMessage)
@@ -26,6 +37,26 @@ export class ChatsService {
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
+
+  onModuleInit() {
+    // Start periodic cleanup if retention is enabled
+    if (MESSAGE_RETENTION_DAYS > 0) {
+      const intervalMs = MESSAGE_CLEANUP_INTERVAL_HOURS * 60 * 60 * 1000;
+      this.logger.log(
+        `Message retention enabled: ${MESSAGE_RETENTION_DAYS} days, cleanup every ${MESSAGE_CLEANUP_INTERVAL_HOURS} hours`,
+      );
+
+      // Run initial cleanup after 1 minute (let app fully start)
+      setTimeout(() => this.cleanupOldMessages(), 60_000);
+
+      // Schedule periodic cleanup
+      this.cleanupInterval = setInterval(() => {
+        this.cleanupOldMessages();
+      }, intervalMs);
+    } else {
+      this.logger.log('Message retention disabled (CHAT_MESSAGE_RETENTION_DAYS=0)');
+    }
+  }
 
   /**
    * Get the current WA session's phone number for the user
@@ -820,5 +851,95 @@ export class ChatsService {
       cleaned = cleaned.slice(0, -1);
     }
     return cleaned;
+  }
+
+  /**
+   * Cleanup old chat messages based on retention policy
+   * Messages older than MESSAGE_RETENTION_DAYS will be deleted
+   */
+  async cleanupOldMessages(): Promise<{ deleted: number }> {
+    if (MESSAGE_RETENTION_DAYS <= 0) {
+      return { deleted: 0 };
+    }
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - MESSAGE_RETENTION_DAYS);
+
+    this.logger.log(
+      `Starting message cleanup: deleting messages older than ${cutoffDate.toISOString()}`,
+    );
+
+    try {
+      // Delete old messages in batches to avoid locking
+      const batchSize = 1000;
+      let totalDeleted = 0;
+
+      while (true) {
+        // Find IDs to delete in batch
+        const messagesToDelete = await this.chatMessageRepository
+          .createQueryBuilder('msg')
+          .select('msg.id')
+          .where('msg.timestamp < :cutoffDate', { cutoffDate })
+          .take(batchSize)
+          .getMany();
+
+        if (messagesToDelete.length === 0) {
+          break; // No more messages to delete
+        }
+
+        const ids = messagesToDelete.map((m) => m.id);
+        const result = await this.chatMessageRepository.delete(ids);
+
+        const deleted = result.affected || 0;
+        totalDeleted += deleted;
+
+        if (messagesToDelete.length < batchSize) {
+          break; // Last batch
+        }
+
+        // Small delay between batches to reduce DB load
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      if (totalDeleted > 0) {
+        this.logger.log(`Message cleanup completed: ${totalDeleted} messages deleted`);
+      }
+
+      return { deleted: totalDeleted };
+    } catch (error) {
+      this.logger.error(`Message cleanup failed: ${error}`);
+      return { deleted: 0 };
+    }
+  }
+
+  /**
+   * Get message retention stats
+   */
+  async getRetentionStats(): Promise<{
+    retentionDays: number;
+    totalMessages: number;
+    oldestMessage: Date | null;
+    messagesOlderThanRetention: number;
+  }> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - MESSAGE_RETENTION_DAYS);
+
+    const [totalMessages, oldestResult, expiredCount] = await Promise.all([
+      this.chatMessageRepository.count(),
+      this.chatMessageRepository
+        .createQueryBuilder('msg')
+        .select('MIN(msg.timestamp)', 'oldest')
+        .getRawOne(),
+      this.chatMessageRepository.count({
+        where: { timestamp: LessThan(cutoffDate) },
+      }),
+    ]);
+
+    return {
+      retentionDays: MESSAGE_RETENTION_DAYS,
+      totalMessages,
+      oldestMessage: oldestResult?.oldest || null,
+      messagesOlderThanRetention: expiredCount,
+    };
   }
 }

@@ -16,7 +16,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import * as express from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserRole } from '../../database/entities/user.entity';
 import { ChatsService } from './chats.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { UploadsService } from '../uploads/uploads.service';
@@ -238,5 +241,52 @@ export class ChatsController {
   ) {
     await this.setSessionHeader(res, userId);
     return this.chatsService.unpinConversation(userId, phoneNumber);
+  }
+
+  // ==================== Admin: Retention Management ====================
+
+  @Get('admin/retention-stats')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get message retention statistics (Admin only)',
+    description: 'Returns stats about message retention policy and cleanup status',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Retention stats',
+    schema: {
+      type: 'object',
+      properties: {
+        retentionDays: { type: 'number', example: 30 },
+        totalMessages: { type: 'number', example: 15000 },
+        oldestMessage: { type: 'string', format: 'date-time' },
+        messagesOlderThanRetention: { type: 'number', example: 500 },
+      },
+    },
+  })
+  async getRetentionStats() {
+    return this.chatsService.getRetentionStats();
+  }
+
+  @Post('admin/cleanup')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Manually trigger message cleanup (Admin only)',
+    description: 'Deletes messages older than the retention period',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cleanup completed',
+    schema: {
+      type: 'object',
+      properties: {
+        deleted: { type: 'number', example: 500 },
+      },
+    },
+  })
+  async triggerCleanup() {
+    return this.chatsService.cleanupOldMessages();
   }
 }

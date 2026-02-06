@@ -3,10 +3,15 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { Contact } from '../../database/entities/contact.entity';
+import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { WhatsAppSession } from '../../database/entities/whatsapp-session.entity';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import {
   CreateContactDto,
   UpdateContactDto,
@@ -21,6 +26,12 @@ export class ContactsService {
   constructor(
     @InjectRepository(Contact)
     private readonly contactRepository: Repository<Contact>,
+    @InjectRepository(ChatMessage)
+    private readonly chatMessageRepository: Repository<ChatMessage>,
+    @InjectRepository(WhatsAppSession)
+    private readonly sessionRepository: Repository<WhatsAppSession>,
+    @Inject(forwardRef(() => WhatsAppService))
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   async create(
@@ -484,6 +495,228 @@ export class ContactsService {
       where: { userId, source: 'whatsapp' },
       order: { name: 'ASC' },
     });
+  }
+
+  /**
+   * Comprehensive sync: contacts from WA contact store + chat conversations
+   * This method gets contacts from both sources and merges them with pushNames
+   */
+  async syncAllContacts(
+    userId: string,
+    options: { updateExisting?: boolean } = {},
+  ): Promise<{
+    imported: number;
+    updated: number;
+    skipped: number;
+    total: number;
+    fromWaContacts: number;
+    fromChats: number;
+  }> {
+    const { updateExisting = true } = options;
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    let fromWaContacts = 0;
+    let fromChats = 0;
+
+    // Get current session phone number
+    const session = await this.sessionRepository.findOne({
+      where: { userId },
+    });
+
+    if (!session?.phoneNumber) {
+      this.logger.warn(`No active session found for user ${userId}`);
+      return {
+        imported,
+        updated,
+        skipped,
+        total: 0,
+        fromWaContacts,
+        fromChats,
+      };
+    }
+
+    const sessionPhoneNumber = session.phoneNumber;
+    this.logger.log(`Syncing contacts for session ${sessionPhoneNumber}`);
+
+    // 1. Get contacts from WhatsApp contact store
+    const waContactsMap = new Map<
+      string,
+      {
+        phoneNumber: string;
+        name: string | null;
+        pushname: string | null;
+        isMyContact: boolean;
+        isWAContact: boolean;
+        source: 'wa_contacts' | 'chat';
+      }
+    >();
+
+    try {
+      const { contacts: waContacts } =
+        await this.whatsappService.getWhatsAppContacts(userId);
+
+      for (const contact of waContacts) {
+        const phoneNumber = this.formatPhoneNumber(contact.phoneNumber);
+        if (!phoneNumber || phoneNumber.length < 10) continue;
+
+        waContactsMap.set(phoneNumber, {
+          phoneNumber,
+          name: contact.name,
+          pushname: contact.pushname,
+          isMyContact: contact.isMyContact,
+          isWAContact: contact.isWAContact,
+          source: 'wa_contacts',
+        });
+        fromWaContacts++;
+      }
+
+      this.logger.log(`Got ${fromWaContacts} contacts from WA contact store`);
+    } catch (error) {
+      this.logger.warn(`Failed to get WA contacts: ${error}`);
+    }
+
+    // 2. Get unique phone numbers from chat conversations (for current session)
+    const chatPhoneNumbers = await this.chatMessageRepository
+      .createQueryBuilder('msg')
+      .select('DISTINCT msg.phoneNumber', 'phoneNumber')
+      .where('msg.userId = :userId', { userId })
+      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', {
+        sessionPhoneNumber,
+      })
+      .andWhere('msg.phoneNumber IS NOT NULL')
+      .andWhere("msg.phoneNumber != ''")
+      .getRawMany();
+
+    this.logger.log(
+      `Found ${chatPhoneNumbers.length} unique phone numbers from chat history`,
+    );
+
+    // Get pushNames for chat contacts that aren't in WA contacts
+    const chatOnlyPhones: string[] = [];
+    for (const { phoneNumber: rawPhone } of chatPhoneNumbers) {
+      const formatted = this.formatPhoneNumber(rawPhone);
+      if (!formatted || formatted.length < 10) continue;
+
+      if (!waContactsMap.has(formatted)) {
+        chatOnlyPhones.push(formatted);
+      }
+    }
+
+    // Get pushNames from WhatsApp for chat-only contacts
+    let pushNameMap: Record<string, string | null> = {};
+    if (chatOnlyPhones.length > 0) {
+      try {
+        pushNameMap = await this.whatsappService.getContactsPushNames(
+          userId,
+          chatOnlyPhones,
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to get pushNames: ${error}`);
+      }
+    }
+
+    // Add chat-only contacts to the map
+    for (const phoneNumber of chatOnlyPhones) {
+      if (!waContactsMap.has(phoneNumber)) {
+        waContactsMap.set(phoneNumber, {
+          phoneNumber,
+          name: null,
+          pushname: pushNameMap[phoneNumber] || null,
+          isMyContact: false,
+          isWAContact: true, // They have chat history, so they're on WA
+          source: 'chat',
+        });
+        fromChats++;
+      }
+    }
+
+    this.logger.log(`Got ${fromChats} additional contacts from chat history`);
+
+    // 3. Save all contacts to database
+    for (const [phoneNumber, contactData] of waContactsMap) {
+      try {
+        const existing = await this.contactRepository.findOne({
+          where: { userId, phoneNumber },
+        });
+
+        if (existing) {
+          if (updateExisting) {
+            // Update with WA info
+            const newWaName =
+              contactData.pushname || contactData.name || existing.waName;
+            if (newWaName) existing.waName = newWaName;
+
+            existing.isWaContact = contactData.isWAContact;
+            existing.lastSyncedAt = new Date();
+
+            // Update name if not set
+            if (!existing.name && (contactData.name || contactData.pushname)) {
+              existing.name = contactData.name || contactData.pushname || undefined;
+            }
+
+            // Add source tag
+            const currentTags = existing.tags || [];
+            const sourceTag =
+              contactData.source === 'wa_contacts' ? 'whatsapp' : 'chat';
+            if (!currentTags.includes(sourceTag)) {
+              existing.tags = [...currentTags, sourceTag];
+            }
+
+            await this.contactRepository.save(existing);
+            updated++;
+          } else {
+            skipped++;
+          }
+        } else {
+          // Create new contact
+          const sourceTag =
+            contactData.source === 'wa_contacts' ? 'whatsapp' : 'chat';
+          const contact = this.contactRepository.create({
+            userId,
+            phoneNumber,
+            name: contactData.name || contactData.pushname || undefined,
+            waName: contactData.pushname || contactData.name || undefined,
+            isWaContact: contactData.isWAContact,
+            source: contactData.source === 'wa_contacts' ? 'whatsapp' : 'chat',
+            lastSyncedAt: new Date(),
+            isActive: true,
+            tags: [sourceTag],
+          });
+
+          await this.contactRepository.save(contact);
+          imported++;
+        }
+      } catch (error) {
+        this.logger.error(`Failed to sync contact ${phoneNumber}: ${error}`);
+        skipped++;
+      }
+    }
+
+    const total = waContactsMap.size;
+    this.logger.log(
+      `Contact sync for user ${userId}: ${imported} imported, ${updated} updated, ${skipped} skipped (total: ${total}, WA: ${fromWaContacts}, chats: ${fromChats})`,
+    );
+
+    return {
+      imported,
+      updated,
+      skipped,
+      total,
+      fromWaContacts,
+      fromChats,
+    };
+  }
+
+  /**
+   * Get session phone number for current user
+   */
+  async getSessionPhoneNumber(userId: string): Promise<string | null> {
+    const session = await this.sessionRepository.findOne({
+      where: { userId },
+    });
+    return session?.phoneNumber || null;
   }
 
   private formatPhoneNumber(phone: string): string {

@@ -260,7 +260,7 @@ export class WhatsAppController {
   @ApiOperation({
     summary: 'Sync WhatsApp contacts to database',
     description:
-      'Syncs contacts from WhatsApp to the contacts database. New contacts will be created, existing ones can be updated.',
+      'Syncs contacts from both WhatsApp contact store AND chat conversations to the database. Gets pushName for all contacts.',
   })
   @ApiResponse({
     status: 201,
@@ -289,6 +289,16 @@ export class WhatsAppController {
           example: 60,
           description: 'Total contacts processed',
         },
+        fromWaContacts: {
+          type: 'number',
+          example: 50,
+          description: 'Contacts from WhatsApp contact store',
+        },
+        fromChats: {
+          type: 'number',
+          example: 10,
+          description: 'Additional contacts from chat history',
+        },
       },
     },
   })
@@ -302,16 +312,9 @@ export class WhatsAppController {
     type: Boolean,
     description: 'Update existing contacts with WA info (default: true)',
   })
-  @ApiQuery({
-    name: 'onlyMyContacts',
-    required: false,
-    type: Boolean,
-    description: 'Only sync contacts saved in phone (default: false)',
-  })
   async syncWhatsAppContacts(
     @CurrentUser('id') userId: string,
     @Query('updateExisting') updateExisting?: string,
-    @Query('onlyMyContacts') onlyMyContacts?: string,
   ) {
     const isReady = await this.whatsappService.isSessionReady(userId);
     if (!isReady) {
@@ -321,19 +324,10 @@ export class WhatsAppController {
     }
 
     try {
-      // Get contacts from WhatsApp
-      const { contacts: waContacts } =
-        await this.whatsappService.getWhatsAppContacts(userId);
-
-      // Sync to database
-      const result = await this.contactsService.syncFromWhatsApp(
-        userId,
-        waContacts,
-        {
-          updateExisting: updateExisting !== 'false',
-          onlyMyContacts: onlyMyContacts === 'true',
-        },
-      );
+      // Sync all contacts (WA contact store + chat conversations)
+      const result = await this.contactsService.syncAllContacts(userId, {
+        updateExisting: updateExisting !== 'false',
+      });
 
       return {
         message: 'Contacts synced successfully',
