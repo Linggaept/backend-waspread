@@ -330,7 +330,7 @@ export class UploadsService {
       this.storageService.isR2Enabled()
     ) {
       try {
-        const result = await this.storageService.compressAndUpload(
+        const result = await this.storageService.uploadFileToR2(
           tempPath,
           userId,
           originalName || path.basename(tempPath),

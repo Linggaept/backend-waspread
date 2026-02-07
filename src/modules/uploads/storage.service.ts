@@ -138,27 +138,48 @@ export class StorageService {
   }
 
   /**
-   * Compress and upload image to R2
+   * Upload (and optionally compress) file to R2
+   */
+  async uploadFileToR2(
+    filePath: string,
+    userId: string,
+    originalName: string,
+  ): Promise<UploadResult> {
+    const ext = path.extname(originalName).toLowerCase();
+    const isImage = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext);
+
+    let buffer: Buffer;
+    
+    // Generate unique key
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 8);
+    const folder = isImage ? 'images' : 'documents';
+    const key = `${folder}/${userId}/${timestamp}-${randomId}${ext}`;
+
+    if (isImage) {
+      try {
+        buffer = await this.compressImage(filePath);
+      } catch (e) {
+        this.logger.warn(`Image compression failed, using original file: ${e}`);
+        buffer = fs.readFileSync(filePath);
+      }
+    } else {
+      buffer = fs.readFileSync(filePath);
+    }
+
+    const contentType = this.getContentType(ext);
+    return this.uploadToR2(buffer, key, contentType);
+  }
+
+  /**
+   * Compress and upload image to R2 (Deprecated: use uploadFileToR2)
    */
   async compressAndUpload(
     filePath: string,
     userId: string,
     originalName: string,
   ): Promise<UploadResult> {
-    // Compress image
-    const compressedBuffer = await this.compressImage(filePath);
-
-    // Generate unique key
-    const ext = path.extname(originalName).toLowerCase() || '.jpg';
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 8);
-    const key = `images/${userId}/${timestamp}-${randomId}${ext}`;
-
-    // Determine content type
-    const contentType = this.getContentType(ext);
-
-    // Upload to R2
-    return this.uploadToR2(compressedBuffer, key, contentType);
+    return this.uploadFileToR2(filePath, userId, originalName);
   }
 
   /**
@@ -232,11 +253,39 @@ export class StorageService {
 
   private getContentType(ext: string): string {
     const types: Record<string, string> = {
+      // Images
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
       '.gif': 'image/gif',
       '.webp': 'image/webp',
+      
+      // Documents
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.txt': 'text/plain',
+      '.csv': 'text/csv',
+      
+      // Video
+      '.mp4': 'video/mp4',
+      '.mov': 'video/quicktime',
+      '.avi': 'video/x-msvideo',
+      '.webm': 'video/webm',
+      
+      // Audio
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.m4a': 'audio/mp4',
+      
+      // Archives
+      '.zip': 'application/zip',
+      '.rar': 'application/x-rar-compressed',
     };
     return types[ext] || 'application/octet-stream';
   }
