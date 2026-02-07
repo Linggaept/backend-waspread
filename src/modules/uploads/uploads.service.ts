@@ -381,6 +381,52 @@ export class UploadsService {
     });
   }
 
+  async saveMediaBuffer(
+    buffer: Buffer,
+    userId: string,
+    mimetype: string,
+    filename?: string,
+  ): Promise<string> {
+    const ext = this.getExtensionFromMimeType(mimetype);
+    const tempFileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    const tempPath = path.join(this.tempDir, tempFileName);
+
+    fs.writeFileSync(tempPath, buffer);
+
+    try {
+      return await this.moveToUserDirectory(
+        tempPath,
+        userId,
+        'media',
+        filename || tempFileName,
+      );
+    } catch (error) {
+      // Ensure temp file is cleaned up if move fails
+      this.cleanupTempFile(tempPath);
+      throw error;
+    }
+  }
+
+  private getExtensionFromMimeType(mimetype: string): string {
+    const extensions: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+      'video/mp4': '.mp4',
+      'audio/mpeg': '.mp3',
+      'audio/ogg': '.ogg',
+      'application/pdf': '.pdf',
+      'application/msword': '.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        '.docx',
+      'application/vnd.ms-excel': '.xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        '.xlsx',
+    };
+    return extensions[mimetype] || '.bin';
+  }
+
   getAbsolutePath(relativePath: string): string {
     if (path.isAbsolute(relativePath)) {
       return relativePath;

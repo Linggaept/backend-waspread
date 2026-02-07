@@ -21,6 +21,7 @@ import { PinnedConversation } from '../../database/entities/pinned-conversation.
 import { Contact } from '../../database/entities/contact.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
+import { UploadsService } from '../uploads/uploads.service';
 import type { IncomingMessage } from '../whatsapp/adapters/whatsapp-client.interface';
 
 @Injectable()
@@ -39,6 +40,7 @@ export class ChatsService implements OnModuleInit {
     private readonly contactRepository: Repository<Contact>,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   onModuleInit() {
@@ -153,6 +155,10 @@ export class ChatsService implements OnModuleInit {
 
     const hasMedia = message.hasMedia || false;
     let mediaType: string | undefined;
+    let mediaUrl: string | undefined;
+    let mimetype: string | undefined;
+    let fileName: string | undefined;
+
     if (hasMedia) {
       const type = message.type;
       if (type === 'imageMessage') mediaType = 'image';
@@ -160,6 +166,30 @@ export class ChatsService implements OnModuleInit {
       else if (type === 'audioMessage') mediaType = 'audio';
       else if (type === 'documentMessage') mediaType = 'document';
       else if (type === 'stickerMessage') mediaType = 'sticker';
+
+      // Download media if available
+      if (message.downloadMedia) {
+        try {
+          this.logger.debug(`Downloading media for message ${waMessageId}...`);
+          const media = await message.downloadMedia();
+          if (media) {
+            // Save to storage
+            mediaUrl = await this.uploadsService.saveMediaBuffer(
+              Buffer.from(media.data, 'base64'),
+              userId,
+              media.mimetype,
+              media.filename,
+            );
+            mimetype = media.mimetype;
+            fileName = media.filename;
+            this.logger.debug(`Media saved to ${mediaUrl}`);
+          } else {
+            this.logger.warn(`Failed to download media for message ${waMessageId}`);
+          }
+        } catch (error) {
+          this.logger.error(`Error downloading media: ${error}`);
+        }
+      }
     }
 
     const timestamp = message.timestamp
@@ -201,6 +231,9 @@ export class ChatsService implements OnModuleInit {
       body: message.body || '',
       hasMedia,
       mediaType,
+      mediaUrl,
+      mimetype,
+      fileName,
       whatsappMessageId: waMessageId,
       messageType: message.type || 'unknown',
       status: direction === ChatMessageDirection.OUTGOING
@@ -234,6 +267,9 @@ export class ChatsService implements OnModuleInit {
           body: saved.body,
           hasMedia: saved.hasMedia,
           mediaType: saved.mediaType,
+          mediaUrl: saved.mediaUrl,
+          mimetype: saved.mimetype,
+          fileName: saved.fileName,
           timestamp: saved.timestamp,
         });
 
