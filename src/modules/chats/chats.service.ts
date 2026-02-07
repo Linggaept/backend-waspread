@@ -631,11 +631,73 @@ export class ChatsService implements OnModuleInit {
     phoneNumber: string,
   ): Promise<{ updated: number }> {
     const normalized = this.normalizePhoneNumber(phoneNumber);
-
+    
     // Get current session phone number
     const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
     if (!sessionPhoneNumber) {
+      this.logger.warn(`No session phone number found for user ${userId}`);
       return { updated: 0 };
+    }
+
+    this.logger.debug(
+      `Marking read for ${normalized} (session: ${sessionPhoneNumber})`,
+    );
+
+    // [NEW] Robust Read Receipt Logic
+    // 1. Get ALL unread messages (to ensure we don't miss any if > 20)
+    // 2. Get last 20 messages (to force-sync even if DB thinks they are read)
+    try {
+      const [unreadMessages, recentMessages] = await Promise.all([
+        this.chatMessageRepository.find({
+          where: {
+            userId,
+            sessionPhoneNumber,
+            phoneNumber: normalized,
+            direction: ChatMessageDirection.INCOMING,
+            isRead: false,
+          },
+          select: ['whatsappMessageId'],
+          take: 100, // Safety limit: process max 100 unread
+        }),
+        this.chatMessageRepository.find({
+          where: {
+            userId,
+            sessionPhoneNumber,
+            phoneNumber: normalized,
+            direction: ChatMessageDirection.INCOMING,
+          },
+          order: { timestamp: 'DESC' },
+          take: 20,
+          select: ['whatsappMessageId'],
+        }),
+      ]);
+
+      // Merge and deduplicate logic
+      const uniqueIds = new Set<string>();
+      
+      unreadMessages.forEach(m => {
+        if (m.whatsappMessageId) uniqueIds.add(m.whatsappMessageId);
+      });
+      
+      recentMessages.forEach(m => {
+        if (m.whatsappMessageId) uniqueIds.add(m.whatsappMessageId);
+      });
+
+      if (uniqueIds.size > 0) {
+        const keys = Array.from(uniqueIds).map((id) => ({
+          remoteJid: normalized + '@c.us',
+          id,
+          fromMe: false,
+        }));
+
+        this.logger.debug(
+          `Sending read receipt for ${keys.length} messages to WA`,
+        );
+        await this.whatsAppService.markMessagesAsRead(userId, keys);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send read receipt: ${error}`);
+      // Continue to update DB locally even if WA sync fails
     }
 
     const result = await this.chatMessageRepository.update(

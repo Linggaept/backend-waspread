@@ -854,6 +854,27 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
     }));
   }
 
+  async markMessagesAsRead(
+    keys: { remoteJid: string; id: string; fromMe: boolean }[],
+  ): Promise<void> {
+    if (!this.sock) {
+      this.logger.warn('Cannot mark messages as read: Session not active');
+      return;
+    }
+
+    try {
+      const baileysKeys = keys.map((key) => ({
+        remoteJid: this.formatToBaileys(key.remoteJid),
+        id: key.id,
+        fromMe: key.fromMe,
+      }));
+
+      await this.sock.readMessages(baileysKeys);
+    } catch (error) {
+      this.logger.error(`Failed to mark messages as read: ${error}`);
+    }
+  }
+
   async requestPairingCode(phoneNumber: string): Promise<string> {
     if (!this.sock) throw new Error('Socket not initialized');
 

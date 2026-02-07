@@ -817,6 +817,24 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async markMessagesAsRead(
+    userId: string,
+    keys: { remoteJid: string; id: string; fromMe: boolean }[],
+  ): Promise<void> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return;
+    }
+
+    try {
+      await instance.adapter.markMessagesAsRead(keys);
+    } catch (error) {
+      this.logger.error(
+        `Error marking messages as read for user ${userId}: ${error}`,
+      );
+    }
+  }
+
   async isSessionReady(userId: string): Promise<boolean> {
     const instance = this.clients.get(userId);
     return instance?.isReady || false;
