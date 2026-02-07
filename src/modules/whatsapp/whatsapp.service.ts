@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -50,7 +50,7 @@ interface ClientInstance {
 }
 
 @Injectable()
-export class WhatsAppService implements OnModuleDestroy {
+export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private clients: Map<string, ClientInstance> = new Map();
   private mediaCache = new Map<
@@ -72,6 +72,7 @@ export class WhatsAppService implements OnModuleDestroy {
   private replyHandler: ReplyHandler | null = null;
   private messageStoreHandler: MessageStoreHandler | null = null;
   private messageStatusHandler: MessageStatusHandler | null = null;
+  private manualDisconnectUsers: Set<string> = new Set(); // Track users who manually disconnect
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -80,6 +81,46 @@ export class WhatsAppService implements OnModuleDestroy {
     private readonly storageService: StorageService,
   ) {
     this.startIdleSessionCleanup();
+  }
+
+  /**
+   * Restore previously connected sessions on server startup
+   */
+  async onModuleInit() {
+    this.logger.log('Restoring WhatsApp sessions...');
+
+    try {
+      // Find sessions that were previously connected
+      const connectedSessions = await this.sessionRepository.find({
+        where: { status: SessionStatus.CONNECTED },
+      });
+
+      if (connectedSessions.length === 0) {
+        this.logger.log('No previous sessions to restore');
+        return;
+      }
+
+      this.logger.log(
+        `Found ${connectedSessions.length} session(s) to restore`,
+      );
+
+      // Restore each session (with delay to avoid overwhelming)
+      for (const session of connectedSessions) {
+        try {
+          this.logger.log(`Restoring session for user ${session.userId}...`);
+          await this.initializeSession(session.userId);
+        } catch (error) {
+          this.logger.error(
+            `Failed to restore session for user ${session.userId}`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log('Session restoration complete');
+    } catch (error) {
+      this.logger.error('Error during session restoration', error);
+    }
   }
 
   async onModuleDestroy() {
@@ -302,6 +343,31 @@ export class WhatsAppService implements OnModuleDestroy {
             status: SessionStatus.DISCONNECTED,
             reason,
           });
+
+          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
+          if (
+            !this.manualDisconnectUsers.has(userId) &&
+            (
+              reason === 'Logged out' ||
+              reason === 'Session logged out' ||
+              reason === 'Connection replaced by another session'
+            )
+          ) {
+            this.logger.log(
+              `Session expired/logged out for user ${userId}. Auto-reconnecting in 3s...`,
+            );
+            setTimeout(() => {
+              this.initializeSession(userId).catch((e) =>
+                this.logger.error(
+                  `Auto-reconnect failed for user ${userId}`,
+                  e,
+                ),
+              );
+            }, 3000);
+          } else if (this.manualDisconnectUsers.has(userId)) {
+            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            this.manualDisconnectUsers.delete(userId);
+          }
         },
         onAuthFailure: async (error: string) => {
           this.logger.error(`Auth failure for user ${userId}: ${error}`);
@@ -495,6 +561,33 @@ export class WhatsAppService implements OnModuleDestroy {
             status: SessionStatus.DISCONNECTED,
             reason,
           });
+
+          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
+          if (
+            !this.manualDisconnectUsers.has(userId) &&
+            (
+              reason === 'Logged out' ||
+              reason === 'Session logged out' ||
+              reason === 'Connection replaced by another session'
+            )
+          ) {
+            this.logger.log(
+              `Session expired/logged out for user ${userId}. Auto-reconnecting (pairing) in 3s...`,
+            );
+            setTimeout(() => {
+              // Re-initialize with pairing if phone number is available
+              this.initializeSessionWithPairing(userId, phoneNumber).catch(
+                (e) =>
+                  this.logger.error(
+                    `Auto-reconnect (pairing) failed for user ${userId}`,
+                    e,
+                  ),
+              );
+            }, 3000);
+          } else if (this.manualDisconnectUsers.has(userId)) {
+            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            this.manualDisconnectUsers.delete(userId);
+          }
         },
         onAuthFailure: async (error: string) => {
           this.logger.error(`Auth failure for user ${userId}: ${error}`);
@@ -577,6 +670,9 @@ export class WhatsAppService implements OnModuleDestroy {
   }
 
   async disconnectSession(userId: string): Promise<void> {
+    // Mark as manual disconnect to prevent auto-reconnect
+    this.manualDisconnectUsers.add(userId);
+
     const instance = this.clients.get(userId);
     if (instance) {
       try {
