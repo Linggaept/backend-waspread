@@ -28,10 +28,13 @@ import {
   SuggestRequestDto,
 } from './dto';
 
+import { GoogleAIFileManager } from '@google/generative-ai/server';
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private genAI: GoogleGenerativeAI | null = null;
+  private fileManager: GoogleAIFileManager | null = null;
   private model: any = null;
 
   constructor(
@@ -48,14 +51,146 @@ export class AiService {
 
   private initializeGemini() {
     const apiKey = this.configService.get<string>('gemini.apiKey');
-    const modelName = this.configService.get<string>('gemini.model') || 'gemini-2.0-flash';
+    const modelName =
+      this.configService.get<string>('gemini.model') || 'gemini-2.5-flash';
 
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
+      this.fileManager = new GoogleAIFileManager(apiKey);
       this.model = this.genAI.getGenerativeModel({ model: modelName });
       this.logger.log(`Gemini AI initialized with model: ${modelName}`);
     } else {
       this.logger.warn('Gemini API key not configured');
+    }
+  }
+
+  /**
+   * Upload file to Gemini File API
+   */
+  async uploadFileToGemini(
+    filePath: string,
+    mimeType: string,
+  ): Promise<string> {
+    if (!this.fileManager) {
+      throw new BadRequestException('Gemini File Manager not configured');
+    }
+
+    try {
+      const uploadResponse = await this.fileManager.uploadFile(filePath, {
+        mimeType,
+        displayName: path.basename(filePath),
+      });
+
+      this.logger.log(`File uploaded to Gemini: ${uploadResponse.file.uri}`);
+      return uploadResponse.file.uri;
+    } catch (error) {
+      this.logger.error(`Failed to upload file to Gemini: ${error}`);
+      throw new BadRequestException('Failed to upload file to AI service');
+    }
+  }
+
+  /**
+   * Extract knowledge from file using multimodal AI
+   */
+  async generateKnowledgeFromMedia(
+    fileUri: string,
+    mimeType: string,
+  ): Promise<CreateKnowledgeDto[]> {
+    if (!this.genAI) {
+      throw new BadRequestException('AI service not configured');
+    }
+
+    // Use Flash model for speed and multimodal capabilities
+    const model = this.genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const prompt = `
+      Analyze this document and extract ALL useful knowledge for a customer service knowledge base.
+      DO NOT LIMIT the output. Extract as many items as found in the document.
+      
+      Focus on:
+      1. Business profile (name, address, hours)
+      2. Products/Services (name, price, description) - Extract ALL products found.
+      3. Policies (return, shipping, warranty)
+      4. FAQ (common questions and answers)
+
+      Return ONLY a JSON array with this schema:
+      [
+        {
+          "category": "product | faq | policy | custom",
+          "title": "Short descriptive title",
+          "content": "Detailed content (can use markdown)",
+          "keywords": ["tag1", "tag2"]
+        }
+      ]
+    `;
+
+    try {
+      // Wait for file to be active before generating content
+      await this.waitForFileActive(fileUri);
+
+      const result = await model.generateContent([
+        {
+          fileData: {
+            mimeType,
+            fileUri,
+          },
+        },
+        { text: prompt },
+      ]);
+
+      const responseText = result.response.text();
+      return JSON.parse(responseText) as CreateKnowledgeDto[];
+    } catch (error) {
+      this.logger.error(`Gemini extraction failed: ${error}`);
+      throw new BadRequestException('Failed to extract knowledge from file');
+    }
+  }
+
+  /**
+   * Convert Excel to CSV for AI processing
+   */
+  async convertExcelToCsv(filePath: string): Promise<string> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+
+    const sheet = workbook.getWorksheet(1);
+    const csvPath = filePath.replace(/\.xlsx?$/, '.csv');
+
+    if (!sheet) {
+      throw new BadRequestException('Excel file is empty');
+    }
+
+    await workbook.csv.writeFile(csvPath);
+    return csvPath;
+  }
+
+  private async waitForFileActive(fileUri: string): Promise<void> {
+    if (!this.fileManager) return;
+
+    const name = fileUri.split('/').pop();
+    let state = 'PROCESSING';
+
+    // Poll for file status
+    for (let i = 0; i < 10; i++) {
+      try {
+        const file = await this.fileManager.getFile(name!);
+        state = file.state;
+        if (state === 'ACTIVE') {
+          return;
+        }
+        if (state === 'FAILED') {
+          throw new Error('File processing failed in Gemini');
+        }
+        // Wait 2s
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } catch (e) {
+        this.logger.warn(`Error checking file state: ${e}`);
+      }
     }
   }
 
@@ -75,7 +210,12 @@ export class AiService {
   async findAllKnowledge(
     userId: string,
     query: KnowledgeQueryDto,
-  ): Promise<{ data: AiKnowledgeBase[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: AiKnowledgeBase[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const { page = 1, limit = 20, category, search, isActive } = query;
 
     const qb = this.knowledgeRepository.createQueryBuilder('kb');
@@ -158,13 +298,15 @@ export class AiService {
   async bulkImportKnowledge(
     userId: string,
     entries: CreateKnowledgeDto[],
-  ): Promise<{ imported: number; failed: number }> {
+  ): Promise<{ imported: number; failed: number; data: AiKnowledgeBase[] }> {
     let imported = 0;
     let failed = 0;
+    const data: AiKnowledgeBase[] = [];
 
     for (const entry of entries) {
       try {
-        await this.createKnowledge(userId, entry);
+        const result = await this.createKnowledge(userId, entry);
+        data.push(result);
         imported++;
       } catch (error) {
         this.logger.error(`Failed to import: ${error}`);
@@ -172,7 +314,7 @@ export class AiService {
       }
     }
 
-    return { imported, failed };
+    return { imported, failed, data };
   }
 
   async importKnowledgeFromFile(
@@ -202,7 +344,9 @@ export class AiService {
       const headers: string[] = [];
       const firstRow = sheet.getRow(1);
       firstRow.eachCell((cell, colNumber) => {
-        headers[colNumber] = String(cell.value || '').toLowerCase().trim();
+        headers[colNumber] = String(cell.value || '')
+          .toLowerCase()
+          .trim();
       });
 
       // Find column indices
@@ -233,7 +377,9 @@ export class AiService {
 
         try {
           const title = String(row.getCell(titleCol + 1).value || '').trim();
-          const content = String(row.getCell(contentCol + 1).value || '').trim();
+          const content = String(
+            row.getCell(contentCol + 1).value || '',
+          ).trim();
 
           if (!title || !content) {
             errors.push(`Row ${rowNumber}: Missing title or content`);
@@ -247,7 +393,11 @@ export class AiService {
             const catValue = String(row.getCell(categoryCol + 1).value || '')
               .toLowerCase()
               .trim();
-            if (Object.values(KnowledgeCategory).includes(catValue as KnowledgeCategory)) {
+            if (
+              Object.values(KnowledgeCategory).includes(
+                catValue as KnowledgeCategory,
+              )
+            ) {
               category = catValue as KnowledgeCategory;
             }
           }
@@ -498,9 +648,7 @@ export class AiService {
 
     const knowledgeText =
       knowledge.length > 0
-        ? knowledge
-            .map((k) => `- ${k.title}: ${k.content}`)
-            .join('\n')
+        ? knowledge.map((k) => `- ${k.title}: ${k.content}`).join('\n')
         : 'Tidak ada data referensi khusus.';
 
     const historyText =

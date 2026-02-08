@@ -732,6 +732,15 @@ export class ChatsService implements OnModuleInit {
       phoneNumber: normalized,
     });
 
+    const deleted = result.affected || 0;
+
+    // [NEW] Also delete from materialized view
+    await this.chatConversationRepository.delete({
+      userId,
+      sessionPhoneNumber,
+      phoneNumber: normalized,
+    });
+
     // Also remove from pinned if exists
     await this.pinnedConversationRepository.delete({
       userId,
@@ -746,7 +755,7 @@ export class ChatsService implements OnModuleInit {
         phoneNumber: normalized,
       });
 
-    return { deleted: result.affected || 0 };
+    return { deleted };
   }
 
   /**

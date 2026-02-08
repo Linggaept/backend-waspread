@@ -190,6 +190,107 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     return this.aiService.importKnowledgeFromFile(userId, file.path);
   }
 
+  @Post('knowledge/import-file-ai')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Import knowledge base from PDF/Image using AI',
+    description: `Upload PDF or Image file. Gemini AI will analyze and extract knowledge items automatically.
+    
+    **Supported formats:** .pdf, .jpg, .jpeg, .png, .webp
+    `,
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'PDF or Image file',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'AI Import completed',
+    schema: {
+      type: 'object',
+      properties: {
+        imported: { type: 'number', example: 5 },
+        failed: { type: 'number', example: 0 },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              category: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async importKnowledgeFileAi(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    const allowedMimeTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'text/csv',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Supported formats: PDF, Image, CSV, Excel',
+      );
+    }
+
+    let filePath = file.path;
+    let mimeType = file.mimetype;
+
+    // 1. Convert Excel to CSV if needed (Gemini prefers text/csv)
+    if (
+      mimeType ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimeType === 'application/vnd.ms-excel'
+    ) {
+      filePath = await this.aiService.convertExcelToCsv(file.path);
+      mimeType = 'text/csv';
+    }
+
+    // 2. Upload to Gemini
+    const fileUri = await this.aiService.uploadFileToGemini(filePath, mimeType);
+
+    // 2. Extract Knowledge
+    const knowledgeItems = await this.aiService.generateKnowledgeFromMedia(
+      fileUri,
+      file.mimetype,
+    );
+
+    // 3. Save to DB
+    const result = await this.aiService.bulkImportKnowledge(
+      userId,
+      knowledgeItems,
+    );
+
+    return result;
+  }
+
   // ==================== SETTINGS ====================
 
   @Get('settings')
