@@ -27,6 +27,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { AiModule } from './modules/ai/ai.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { ProductsModule } from './modules/products/products.module';
 import {
   databaseConfig,
   redisConfig,
@@ -94,6 +95,7 @@ import { validate } from './config/env.validation';
     AiModule,
     LeadsModule,
     AnalyticsModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [
