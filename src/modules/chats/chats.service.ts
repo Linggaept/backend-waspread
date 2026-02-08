@@ -62,7 +62,9 @@ export class ChatsService implements OnModuleInit {
         this.cleanupOldMessages();
       }, intervalMs);
     } else {
-      this.logger.log('Message retention disabled (CHAT_MESSAGE_RETENTION_DAYS=0)');
+      this.logger.log(
+        'Message retention disabled (CHAT_MESSAGE_RETENTION_DAYS=0)',
+      );
     }
   }
 
@@ -142,7 +144,9 @@ export class ChatsService implements OnModuleInit {
     // Get the session phone number (the WA account that's connected)
     const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
     if (!sessionPhoneNumber) {
-      this.logger.warn(`No session phone number found for user ${userId}, skipping message store`);
+      this.logger.warn(
+        `No session phone number found for user ${userId}, skipping message store`,
+      );
       return;
     }
 
@@ -187,7 +191,9 @@ export class ChatsService implements OnModuleInit {
             fileName = media.filename;
             this.logger.debug(`Media saved to ${mediaUrl}`);
           } else {
-            this.logger.warn(`Failed to download media for message ${waMessageId}`);
+            this.logger.warn(
+              `Failed to download media for message ${waMessageId}`,
+            );
           }
         } catch (error) {
           this.logger.error(`Error downloading media: ${error}`);
@@ -239,16 +245,19 @@ export class ChatsService implements OnModuleInit {
       fileName,
       whatsappMessageId: waMessageId,
       messageType: message.type || 'unknown',
-      status: direction === ChatMessageDirection.OUTGOING
-        ? ChatMessageStatus.SENT
-        : ChatMessageStatus.RECEIVED,
+      status:
+        direction === ChatMessageDirection.OUTGOING
+          ? ChatMessageStatus.SENT
+          : ChatMessageStatus.RECEIVED,
       timestamp,
       isRead: direction === ChatMessageDirection.OUTGOING,
       blastId,
     });
 
     try {
-      const saved = await this.chatMessageRepository.save(chatMessage) as ChatMessage;
+      const saved = (await this.chatMessageRepository.save(
+        chatMessage,
+      )) as ChatMessage;
 
       if (direction === ChatMessageDirection.INCOMING) {
         this.logger.log(
@@ -261,20 +270,18 @@ export class ChatsService implements OnModuleInit {
       }
 
       // Emit WebSocket event for all messages
-      this.whatsAppGateway.server
-        .to(`user:${userId}`)
-        .emit('chat:message', {
-          id: saved.id,
-          phoneNumber: saved.phoneNumber,
-          direction: saved.direction,
-          body: saved.body,
-          hasMedia: saved.hasMedia,
-          mediaType: saved.mediaType,
-          mediaUrl: saved.mediaUrl,
-          mimetype: saved.mimetype,
-          fileName: saved.fileName,
-          timestamp: saved.timestamp,
-        });
+      this.whatsAppGateway.server.to(`user:${userId}`).emit('chat:message', {
+        id: saved.id,
+        phoneNumber: saved.phoneNumber,
+        direction: saved.direction,
+        body: saved.body,
+        hasMedia: saved.hasMedia,
+        mediaType: saved.mediaType,
+        mediaUrl: saved.mediaUrl,
+        mimetype: saved.mimetype,
+        fileName: saved.fileName,
+        timestamp: saved.timestamp,
+      });
 
       // [NEW] Sync materialized conversation view
       if (sessionPhoneNumber) {
@@ -329,9 +336,12 @@ export class ChatsService implements OnModuleInit {
     const pinnedPhones = Array.from(pinnedSet);
 
     // Build Query on ChatConversation (Materialized View)
-    const qb = this.chatConversationRepository.createQueryBuilder('c')
+    const qb = this.chatConversationRepository
+      .createQueryBuilder('c')
       .where('c.userId = :userId', { userId })
-      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber });
+      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', {
+        sessionPhoneNumber,
+      });
 
     if (search) {
       qb.andWhere(
@@ -367,16 +377,20 @@ export class ChatsService implements OnModuleInit {
         pushName: conv.pushName || null,
         contactName: conv.contactName || null,
         isPinned: pinnedSet.has(conv.phoneNumber),
-        lastMessage: conv.lastMessageTimestamp ? {
-          id: conv.lastMessageId || 'old',
-          body: conv.lastMessageBody || '',
-          direction: conv.lastMessageDirection || 'incoming',
-          hasMedia: conv.hasMedia,
-          mediaType: conv.lastMessageType,
-          timestamp: conv.lastMessageTimestamp,
-        } : null,
+        lastMessage: conv.lastMessageTimestamp
+          ? {
+              id: conv.lastMessageId || 'old',
+              body: conv.lastMessageBody || '',
+              direction: conv.lastMessageDirection || 'incoming',
+              hasMedia: conv.hasMedia,
+              mediaType: conv.lastMessageType,
+              timestamp: conv.lastMessageTimestamp,
+            }
+          : null,
         unreadCount: conv.unreadCount,
-        campaign: conv.blastId ? { blastId: conv.blastId, blastName: conv.blastName || 'Blast' } : null,
+        campaign: conv.blastId
+          ? { blastId: conv.blastId, blastName: conv.blastName || 'Blast' }
+          : null,
       };
     });
 
@@ -404,7 +418,10 @@ export class ChatsService implements OnModuleInit {
     });
 
     // Get contact info (pushName) from WhatsApp as fallback
-    const waContact = await this.whatsAppService.getContactByPhone(userId, normalized);
+    const waContact = await this.whatsAppService.getContactByPhone(
+      userId,
+      normalized,
+    );
 
     // Check if conversation is pinned
     const pinnedConvo = await this.pinnedConversationRepository.findOne({
@@ -480,7 +497,7 @@ export class ChatsService implements OnModuleInit {
     phoneNumber: string,
   ): Promise<{ updated: number }> {
     const normalized = this.normalizePhoneNumber(phoneNumber);
-    
+
     // Get current session phone number
     const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
     if (!sessionPhoneNumber) {
@@ -523,12 +540,12 @@ export class ChatsService implements OnModuleInit {
 
       // Merge and deduplicate logic
       const uniqueIds = new Set<string>();
-      
-      unreadMessages.forEach(m => {
+
+      unreadMessages.forEach((m) => {
         if (m.whatsappMessageId) uniqueIds.add(m.whatsappMessageId);
       });
-      
-      recentMessages.forEach(m => {
+
+      recentMessages.forEach((m) => {
         if (m.whatsappMessageId) uniqueIds.add(m.whatsappMessageId);
       });
 
@@ -625,7 +642,24 @@ export class ChatsService implements OnModuleInit {
       isRead: true,
     });
 
-    const saved = await this.chatMessageRepository.save(chatMessage) as ChatMessage;
+    const saved = (await this.chatMessageRepository.save(
+      chatMessage,
+    )) as ChatMessage;
+
+    // Sync conversation to materialized view
+    if (sessionPhoneNumber) {
+      this.syncConversation(userId, sessionPhoneNumber, saved.phoneNumber, {
+        id: saved.id,
+        body: saved.body,
+        type: saved.messageType,
+        timestamp: saved.timestamp,
+        direction: saved.direction,
+        isRead: saved.isRead,
+        hasMedia: saved.hasMedia,
+        blastId: saved.blastId,
+        blastName: undefined,
+      });
+    }
 
     // Emit confirmation via WebSocket
     this.whatsAppGateway.server.to(`user:${userId}`).emit('chat:message-sent', {
@@ -678,7 +712,24 @@ export class ChatsService implements OnModuleInit {
       isRead: true,
     });
 
-    const saved = await this.chatMessageRepository.save(chatMessage) as ChatMessage;
+    const saved = (await this.chatMessageRepository.save(
+      chatMessage,
+    )) as ChatMessage;
+
+    // Sync conversation to materialized view
+    if (sessionPhoneNumber) {
+      this.syncConversation(userId, sessionPhoneNumber, saved.phoneNumber, {
+        id: saved.id,
+        body: saved.body,
+        type: saved.messageType,
+        timestamp: saved.timestamp,
+        direction: saved.direction,
+        isRead: saved.isRead,
+        hasMedia: saved.hasMedia,
+        blastId: saved.blastId,
+        blastName: undefined,
+      });
+    }
 
     // Emit confirmation via WebSocket
     this.whatsAppGateway.server.to(`user:${userId}`).emit('chat:message-sent', {
@@ -704,7 +755,9 @@ export class ChatsService implements OnModuleInit {
       .createQueryBuilder('c')
       .select('SUM(c.unreadCount)', 'sum')
       .where('c.userId = :userId', { userId })
-      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
+      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', {
+        sessionPhoneNumber,
+      })
       .getRawOne();
 
     const count = result?.sum ? parseInt(result.sum, 10) : 0;
@@ -931,7 +984,11 @@ export class ChatsService implements OnModuleInit {
     }
     // Strip trailing '0' for Indonesian numbers longer than 13 digits
     // Baileys JID sometimes appends extra '0' (e.g. 62821336953800 → 6282133695380)
-    if (cleaned.startsWith('62') && cleaned.length > 13 && cleaned.endsWith('0')) {
+    if (
+      cleaned.startsWith('62') &&
+      cleaned.length > 13 &&
+      cleaned.endsWith('0')
+    ) {
       cleaned = cleaned.slice(0, -1);
     }
     return cleaned;
@@ -986,7 +1043,9 @@ export class ChatsService implements OnModuleInit {
       }
 
       if (totalDeleted > 0) {
-        this.logger.log(`Message cleanup completed: ${totalDeleted} messages deleted`);
+        this.logger.log(
+          `Message cleanup completed: ${totalDeleted} messages deleted`,
+        );
       }
 
       return { deleted: totalDeleted };
@@ -1040,7 +1099,9 @@ export class ChatsService implements OnModuleInit {
       .createQueryBuilder('msg')
       .select('DISTINCT msg.phoneNumber', 'phoneNumber')
       .where('msg.userId = :userId', { userId })
-      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
+      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', {
+        sessionPhoneNumber,
+      })
       .getRawMany();
 
     this.logger.log(`Found ${phones.length} conversations to sync.`);
@@ -1055,15 +1116,15 @@ export class ChatsService implements OnModuleInit {
 
       if (lastMessage) {
         await this.syncConversation(userId, sessionPhoneNumber, phoneNumber, {
-            id: lastMessage.id,
-            body: lastMessage.body,
-            type: lastMessage.messageType,
-            timestamp: lastMessage.timestamp,
-            direction: lastMessage.direction,
-            isRead: lastMessage.isRead,
-            hasMedia: lastMessage.hasMedia,
-            blastId: lastMessage.blastId,
-            blastName: lastMessage.blast?.name
+          id: lastMessage.id,
+          body: lastMessage.body,
+          type: lastMessage.messageType,
+          timestamp: lastMessage.timestamp,
+          direction: lastMessage.direction,
+          isRead: lastMessage.isRead,
+          hasMedia: lastMessage.hasMedia,
+          blastId: lastMessage.blastId,
+          blastName: lastMessage.blast?.name,
         });
       }
     }
@@ -1116,7 +1177,6 @@ export class ChatsService implements OnModuleInit {
         conversation.blastName = lastMessage.blastName;
       }
 
-
       // Update unread count efficiently
       const unreadCount = await this.chatMessageRepository.count({
         where: {
@@ -1141,6 +1201,24 @@ export class ChatsService implements OnModuleInit {
       }
 
       await this.chatConversationRepository.save(conversation);
+
+      // Emit real-time update for conversation list sorting
+      this.whatsAppGateway.sendConversationUpdate(userId, {
+        phoneNumber: conversation.phoneNumber,
+        pushName: conversation.pushName,
+        contactName: conversation.contactName,
+        lastMessage: {
+          id: lastMessage.id || 'unknown',
+          body: lastMessage.body,
+          direction: lastMessage.direction,
+          hasMedia: lastMessage.hasMedia,
+          mediaType: lastMessage.type,
+          timestamp: lastMessage.timestamp,
+        },
+        unreadCount: conversation.unreadCount,
+        blastId: conversation.blastId,
+        blastName: conversation.blastName,
+      });
     } catch (error) {
       this.logger.error(
         `Failed to sync conversation for ${phoneNumber}: ${error}`,

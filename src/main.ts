@@ -67,6 +67,7 @@ async function bootstrap() {
       'https://waspread.com',
       'https://api.netadev.my.id',
       'https://www.netadev.my.id',
+      'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,

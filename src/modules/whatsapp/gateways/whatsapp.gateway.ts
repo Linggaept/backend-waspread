@@ -22,6 +22,7 @@ import { Notification } from '../../../database/entities/notification.entity';
       'https://waspread.com',
       'https://api.netadev.my.id',
       'https://www.netadev.my.id',
+      'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
     ],
   },
   namespace: '/whatsapp',
@@ -134,7 +135,8 @@ export class WhatsAppGateway
   @SubscribeMessage('chat:conversations')
   async handleGetConversations(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { userId: string; page?: number; limit?: number; search?: string },
+    @MessageBody()
+    data: { userId: string; page?: number; limit?: number; search?: string },
   ) {
     if (!this.chatService) return { error: 'Chat service not available' };
     try {
@@ -152,14 +154,24 @@ export class WhatsAppGateway
   @SubscribeMessage('chat:history')
   async handleGetChatHistory(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { userId: string; phoneNumber: string; page?: number; limit?: number },
+    @MessageBody()
+    data: {
+      userId: string;
+      phoneNumber: string;
+      page?: number;
+      limit?: number;
+    },
   ) {
     if (!this.chatService) return { error: 'Chat service not available' };
     try {
-      const result = await this.chatService.getChatHistory(data.userId, data.phoneNumber, {
-        page: data.page,
-        limit: data.limit,
-      });
+      const result = await this.chatService.getChatHistory(
+        data.userId,
+        data.phoneNumber,
+        {
+          page: data.page,
+          limit: data.limit,
+        },
+      );
       return result;
     } catch (error: any) {
       return { error: error.message };
@@ -169,7 +181,8 @@ export class WhatsAppGateway
   @SubscribeMessage('chat:send')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { userId: string; phoneNumber: string; message: string },
+    @MessageBody()
+    data: { userId: string; phoneNumber: string; message: string },
   ) {
     if (!this.chatService) return { error: 'Chat service not available' };
     try {
@@ -187,7 +200,8 @@ export class WhatsAppGateway
   @SubscribeMessage('chat:send-media')
   async handleSendMedia(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       userId: string;
       phoneNumber: string;
       message?: string;
@@ -386,6 +400,34 @@ export class WhatsAppGateway
       .emit('notification:count', { unreadCount: count });
     this.logger.debug(
       `Notification count updated for user ${userId}: ${count}`,
+    );
+  }
+
+  // Send conversation update to user (for real-time list sorting)
+  sendConversationUpdate(
+    userId: string,
+    conversation: {
+      phoneNumber: string;
+      pushName?: string;
+      contactName?: string;
+      lastMessage: {
+        id: string;
+        body: string;
+        direction: string;
+        hasMedia: boolean;
+        mediaType?: string;
+        timestamp: Date;
+      };
+      unreadCount: number;
+      blastId?: string;
+      blastName?: string;
+    },
+  ) {
+    this.server
+      .to(`user:${userId}`)
+      .emit('chat:conversation-updated', conversation);
+    this.logger.debug(
+      `Conversation updated for user ${userId}: ${conversation.phoneNumber}`,
     );
   }
 
