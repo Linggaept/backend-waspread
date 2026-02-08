@@ -15,6 +15,7 @@ import {
   ChatMessageDirection,
   ChatMessageStatus,
 } from '../../../database/entities/chat-message.entity';
+import { ChatConversation } from '../../../database/entities/chat-conversation.entity';
 import { User } from '../../../database/entities/user.entity';
 import { WhatsAppService } from '../../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
@@ -34,7 +35,7 @@ export interface BlastJobData {
 @Processor('blast')
 export class BlastProcessor extends WorkerHost {
   private readonly logger = new Logger(BlastProcessor.name);
-  private readonly PROGRESS_BATCH_SIZE = 5; // Send progress update every N messages
+  private readonly PROGRESS_BATCH_SIZE = 10; // Send progress update every N messages
 
   constructor(
     @InjectRepository(Blast)
@@ -43,6 +44,8 @@ export class BlastProcessor extends WorkerHost {
     private readonly messageRepository: Repository<BlastMessage>,
     @InjectRepository(ChatMessage)
     private readonly chatMessageRepository: Repository<ChatMessage>,
+    @InjectRepository(ChatConversation)
+    private readonly chatConversationRepository: Repository<ChatConversation>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly whatsappService: WhatsAppService,
@@ -66,9 +69,10 @@ export class BlastProcessor extends WorkerHost {
 
     this.logger.log(`Processing message ${messageId} for blast ${blastId}`);
 
-    // Check if blast is still active
+    // Check if blast is still active (only fetch status)
     const blast = await this.blastRepository.findOne({
       where: { id: blastId },
+      select: ['id', 'status'],
     });
     if (!blast || blast.status === BlastStatus.CANCELLED) {
       this.logger.log(
@@ -105,16 +109,16 @@ export class BlastProcessor extends WorkerHost {
           errorMessage: 'Number not registered on WhatsApp',
         });
 
-        await this.blastRepository.increment(
-          { id: blastId },
-          'invalidCount',
-          1,
-        );
-        await this.blastRepository.decrement(
-          { id: blastId },
-          'pendingCount',
-          1,
-        );
+        // Atomic counter update (single query instead of two)
+        await this.blastRepository
+          .createQueryBuilder()
+          .update(Blast)
+          .set({
+            invalidCount: () => '"invalidCount" + 1',
+            pendingCount: () => '"pendingCount" - 1',
+          })
+          .where('id = :id', { id: blastId })
+          .execute();
 
         // Send progress update
         await this.sendProgressUpdate(blastId, userId);
@@ -159,7 +163,11 @@ export class BlastProcessor extends WorkerHost {
           }
         }
       } else {
-        sendResult = await this.whatsappService.sendMessage(userId, phoneNumber, message);
+        sendResult = await this.whatsappService.sendMessage(
+          userId,
+          phoneNumber,
+          message,
+        );
       }
 
       // Update message status + save whatsappMessageId for campaign linking
@@ -190,7 +198,18 @@ export class BlastProcessor extends WorkerHost {
           isRead: true,
           blastId,
         });
-        await this.chatMessageRepository.save(chatMsg);
+        const savedChatMsg = await this.chatMessageRepository.save(chatMsg);
+
+        // Sync to ChatConversation for conversation list
+        if (sessionPhoneNumber) {
+          await this.syncBlastConversation(
+            userId,
+            sessionPhoneNumber,
+            normalizedPhone,
+            savedChatMsg,
+            blastId,
+          );
+        }
       } catch (chatError: any) {
         // Ignore duplicate (dedup by whatsappMessageId)
         if (chatError?.code !== '23505') {
@@ -198,9 +217,16 @@ export class BlastProcessor extends WorkerHost {
         }
       }
 
-      // Update blast counts
-      await this.blastRepository.increment({ id: blastId }, 'sentCount', 1);
-      await this.blastRepository.decrement({ id: blastId }, 'pendingCount', 1);
+      // Atomic counter update (single query instead of two)
+      await this.blastRepository
+        .createQueryBuilder()
+        .update(Blast)
+        .set({
+          sentCount: () => '"sentCount" + 1',
+          pendingCount: () => '"pendingCount" - 1',
+        })
+        .where('id = :id', { id: blastId })
+        .execute();
 
       // Create/update funnel entry for this recipient (fire and forget)
       const blastInfo = await this.blastRepository.findOne({
@@ -208,7 +234,12 @@ export class BlastProcessor extends WorkerHost {
         select: ['id', 'name'],
       });
       this.funnelTrackerService
-        .onBlastSent(userId, normalizedPhone, blastId, blastInfo?.name || 'Blast')
+        .onBlastSent(
+          userId,
+          normalizedPhone,
+          blastId,
+          blastInfo?.name || 'Blast',
+        )
         .catch((err) => {
           this.logger.warn(`Failed to create funnel entry: ${err}`);
         });
@@ -248,12 +279,16 @@ export class BlastProcessor extends WorkerHost {
           errorType,
         });
 
-        await this.blastRepository.increment({ id: blastId }, 'failedCount', 1);
-        await this.blastRepository.decrement(
-          { id: blastId },
-          'pendingCount',
-          1,
-        );
+        // Atomic counter update (single query instead of two)
+        await this.blastRepository
+          .createQueryBuilder()
+          .update(Blast)
+          .set({
+            failedCount: () => '"failedCount" + 1',
+            pendingCount: () => '"pendingCount" - 1',
+          })
+          .where('id = :id', { id: blastId })
+          .execute();
 
         // Send progress update
         await this.sendProgressUpdate(blastId, userId);
@@ -306,8 +341,17 @@ export class BlastProcessor extends WorkerHost {
     blastId: string,
     userId: string,
   ): Promise<void> {
+    // Only fetch fields needed for progress calculation
     const blast = await this.blastRepository.findOne({
       where: { id: blastId },
+      select: [
+        'id',
+        'sentCount',
+        'failedCount',
+        'invalidCount',
+        'pendingCount',
+        'totalRecipients',
+      ],
     });
     if (!blast) return;
 
@@ -333,8 +377,21 @@ export class BlastProcessor extends WorkerHost {
   }
 
   private async checkBlastCompletion(blastId: string): Promise<void> {
+    // Only fetch fields needed for completion check
     const blast = await this.blastRepository.findOne({
       where: { id: blastId },
+      select: [
+        'id',
+        'userId',
+        'name',
+        'status',
+        'pendingCount',
+        'sentCount',
+        'failedCount',
+        'invalidCount',
+        'totalRecipients',
+        'startedAt',
+      ],
     });
     if (!blast) return;
 
@@ -410,12 +467,83 @@ export class BlastProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Sync blast message to ChatConversation for conversation list
+   */
+  private async syncBlastConversation(
+    userId: string,
+    sessionPhoneNumber: string,
+    phoneNumber: string,
+    chatMsg: ChatMessage,
+    blastId: string,
+  ): Promise<void> {
+    try {
+      // Get blast name for display
+      const blast = await this.blastRepository.findOne({
+        where: { id: blastId },
+        select: ['id', 'name'],
+      });
+
+      // Find or create conversation
+      let conversation = await this.chatConversationRepository.findOne({
+        where: { userId, sessionPhoneNumber, phoneNumber },
+      });
+
+      if (!conversation) {
+        conversation = this.chatConversationRepository.create({
+          userId,
+          sessionPhoneNumber,
+          phoneNumber,
+          pushName: undefined,
+          contactName: undefined,
+          unreadCount: 0,
+        });
+      }
+
+      // Update last message info
+      conversation.lastMessageId = chatMsg.id;
+      conversation.lastMessageBody = chatMsg.body;
+      conversation.lastMessageType = chatMsg.messageType;
+      conversation.lastMessageTimestamp = chatMsg.timestamp;
+      conversation.lastMessageDirection = chatMsg.direction;
+      conversation.hasMedia = chatMsg.hasMedia;
+      conversation.blastId = blastId;
+      conversation.blastName = blast?.name || 'Blast';
+
+      await this.chatConversationRepository.save(conversation);
+
+      // Emit real-time update for conversation list sorting
+      this.whatsappGateway.sendConversationUpdate(userId, {
+        phoneNumber: conversation.phoneNumber,
+        pushName: conversation.pushName,
+        contactName: conversation.contactName,
+        lastMessage: {
+          id: chatMsg.id,
+          body: chatMsg.body,
+          direction: chatMsg.direction,
+          hasMedia: chatMsg.hasMedia,
+          mediaType: chatMsg.messageType,
+          timestamp: chatMsg.timestamp,
+        },
+        unreadCount: conversation.unreadCount,
+        blastId: conversation.blastId,
+        blastName: conversation.blastName,
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to sync blast conversation: ${error}`);
+    }
+  }
+
   private normalizePhoneNumber(phone: string): string {
     let cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);
     }
-    if (cleaned.startsWith('62') && cleaned.length > 13 && cleaned.endsWith('0')) {
+    if (
+      cleaned.startsWith('62') &&
+      cleaned.length > 13 &&
+      cleaned.endsWith('0')
+    ) {
       cleaned = cleaned.slice(0, -1);
     }
     return cleaned;
