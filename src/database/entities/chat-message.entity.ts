@@ -31,6 +31,7 @@ export enum ChatMessageStatus {
 @Index(['userId', 'phoneNumber', 'timestamp'])
 @Index(['userId', 'phoneNumber'])
 @Index(['userId', 'timestamp'])
+@Index(['userId', 'sessionPhoneNumber', 'phoneNumber', 'direction', 'isRead']) // Optimize unread counts
 @Index(['whatsappMessageId'], { unique: true, where: '"whatsappMessageId" IS NOT NULL' })
 export class ChatMessage {
   @PrimaryGeneratedColumn('uuid')

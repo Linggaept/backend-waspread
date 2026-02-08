@@ -61,6 +61,14 @@ export class ChatsController {
     return this.chatsService.getConversations(userId, query);
   }
 
+  // [NEW] Migration endpoint
+  @Post('conversations/sync')
+  @ApiOperation({ summary: 'Sync all conversations to materialized view' })
+  async syncConversations(@CurrentUser('id') userId: string) {
+    await this.chatsService.syncAllConversations(userId);
+    return { message: 'Conversation sync triggered' };
+  }
+
   @Get('conversations/:phoneNumber')
   @ApiOperation({ summary: 'Get chat history with a specific phone number' })
   async getChatHistory(

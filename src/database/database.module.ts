@@ -22,6 +22,7 @@ import { LeadScore } from './entities/lead-score.entity';
 import { LeadScoreSettings } from './entities/lead-score-settings.entity';
 import { ConversationFunnel } from './entities/conversation-funnel.entity';
 import { AnalyticsSnapshot } from './entities/analytics-snapshot.entity';
+import { ChatConversation } from './entities/chat-conversation.entity';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { AnalyticsSnapshot } from './entities/analytics-snapshot.entity';
           LeadScoreSettings,
           ConversationFunnel,
           AnalyticsSnapshot,
+          ChatConversation,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!

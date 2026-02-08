@@ -4,6 +4,7 @@ import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as path from 'path';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { ChatConversation } from '../../database/entities/chat-conversation.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
 import { Contact } from '../../database/entities/contact.entity';
@@ -20,7 +21,13 @@ import { FunnelTrackerService } from '../analytics/services/funnel-tracker.servi
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ChatMessage, BlastMessage, PinnedConversation, Contact]),
+    TypeOrmModule.forFeature([
+      ChatMessage,
+      BlastMessage,
+      PinnedConversation,
+      Contact,
+      ChatConversation,
+    ]),
     WhatsAppModule,
     UploadsModule,
     forwardRef(() => LeadsModule),

@@ -16,6 +16,7 @@ import {
   ChatMessageDirection,
   ChatMessageStatus,
 } from '../../database/entities/chat-message.entity';
+import { ChatConversation } from '../../database/entities/chat-conversation.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
 import { Contact } from '../../database/entities/contact.entity';
@@ -38,6 +39,8 @@ export class ChatsService implements OnModuleInit {
     private readonly pinnedConversationRepository: Repository<PinnedConversation>,
     @InjectRepository(Contact)
     private readonly contactRepository: Repository<Contact>,
+    @InjectRepository(ChatConversation)
+    private readonly chatConversationRepository: Repository<ChatConversation>,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
     private readonly uploadsService: UploadsService,
@@ -273,6 +276,21 @@ export class ChatsService implements OnModuleInit {
           timestamp: saved.timestamp,
         });
 
+      // [NEW] Sync materialized conversation view
+      if (sessionPhoneNumber) {
+        this.syncConversation(userId, sessionPhoneNumber, saved.phoneNumber, {
+          id: saved.id,
+          body: saved.body,
+          type: saved.messageType,
+          timestamp: saved.timestamp,
+          direction: saved.direction,
+          isRead: saved.isRead,
+          hasMedia: saved.hasMedia,
+          blastId: saved.blastId,
+          blastName: saved.blast?.name,
+        });
+      }
+
       // Emit unread count update for incoming messages
       if (direction === ChatMessageDirection.INCOMING) {
         const { unreadCount } = await this.getUnreadCount(userId);
@@ -296,239 +314,70 @@ export class ChatsService implements OnModuleInit {
   ) {
     const { page = 1, limit = 20, search } = query;
 
-    // Get current session phone number to filter chats
+    // Get current session phone number
     const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
     if (!sessionPhoneNumber) {
       return { data: [], total: 0, page, limit };
     }
 
-    // If searching, also include contacts without chat history
-    let contactOnlyResults: Array<{
-      phoneNumber: string;
-      name?: string;
-      waName?: string;
-    }> = [];
-
-    if (search) {
-      // Find contacts matching search that may not have chat history
-      const matchingContacts = await this.contactRepository
-        .createQueryBuilder('contact')
-        .select(['contact.phoneNumber', 'contact.name', 'contact.waName'])
-        .where('contact.userId = :userId', { userId })
-        .andWhere('contact.isActive = true')
-        .andWhere(
-          '(contact.phoneNumber ILIKE :search OR contact.name ILIKE :search OR contact."waName" ILIKE :search)',
-          { search: `%${search}%` },
-        )
-        .getMany();
-
-      contactOnlyResults = matchingContacts;
-    }
-
-    // Subquery to get latest message per phone number (filtered by session)
-    const subQuery = this.chatMessageRepository
-      .createQueryBuilder('sub')
-      .select('sub.phoneNumber', 'phoneNumber')
-      .addSelect('MAX(sub.timestamp)', 'maxTimestamp')
-      .where('sub.userId = :userId', { userId })
-      .andWhere('sub.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
-      .groupBy('sub.phoneNumber');
-
-    // Main query with latest message details + LEFT JOIN contacts for search
-    let qb = this.chatMessageRepository
-      .createQueryBuilder('msg')
-      .innerJoin(
-        `(${subQuery.getQuery()})`,
-        'latest',
-        'msg.phoneNumber = latest."phoneNumber" AND msg.timestamp = latest."maxTimestamp"',
-      )
-      .leftJoin(
-        Contact,
-        'contact',
-        'contact.phoneNumber = msg.phoneNumber AND contact.userId = msg.userId',
-      )
-      .setParameters(subQuery.getParameters())
-      .where('msg.userId = :userId', { userId })
-      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber });
-
-    if (search) {
-      // Search by: phone number, message body, contact name, contact waName (pushName)
-      qb = qb.andWhere(
-        '(msg.phoneNumber ILIKE :search OR msg.body ILIKE :search OR contact.name ILIKE :search OR contact."waName" ILIKE :search)',
-        { search: `%${search}%` },
-      );
-    }
-
-    const chatTotal = await qb.getCount();
-
-    const messages = await qb
-      .orderBy('msg.timestamp', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
-
-    // Get phone numbers that already have chat history
-    const chatPhoneNumbers = new Set(messages.map((m) => m.phoneNumber));
-
-    // Get unread counts per conversation
-    const phoneNumbers = messages.map((m) => m.phoneNumber);
-    let unreadCounts: Record<string, number> = {};
-
-    if (phoneNumbers.length > 0) {
-      const unreadResults = await this.chatMessageRepository
-        .createQueryBuilder('msg')
-        .select('msg.phoneNumber', 'phoneNumber')
-        .addSelect('COUNT(*)', 'count')
-        .where('msg.userId = :userId', { userId })
-        .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
-        .andWhere('msg.phoneNumber IN (:...phoneNumbers)', { phoneNumbers })
-        .andWhere('msg.direction = :direction', {
-          direction: ChatMessageDirection.INCOMING,
-        })
-        .andWhere('msg.isRead = false')
-        .groupBy('msg.phoneNumber')
-        .getRawMany();
-
-      unreadCounts = unreadResults.reduce(
-        (acc, row) => {
-          acc[row.phoneNumber] = parseInt(row.count, 10);
-          return acc;
-        },
-        {} as Record<string, number>,
-      );
-    }
-
-    // Get blast campaign labels per conversation
-    let blastLabels: Record<string, { blastId: string; blastName: string }> = {};
-    if (phoneNumbers.length > 0) {
-      const blastResults = await this.chatMessageRepository
-        .createQueryBuilder('msg')
-        .select('msg.phoneNumber', 'phoneNumber')
-        .addSelect('blast.id', 'blastId')
-        .addSelect('blast.name', 'blastName')
-        .innerJoin('msg.blast', 'blast')
-        .where('msg.userId = :userId', { userId })
-        .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
-        .andWhere('msg.phoneNumber IN (:...phoneNumbers)', { phoneNumbers })
-        .andWhere('msg.blastId IS NOT NULL')
-        .orderBy('msg.timestamp', 'DESC')
-        .getRawMany();
-
-      // Keep the most recent blast per phone number
-      for (const row of blastResults) {
-        if (!blastLabels[row.phoneNumber]) {
-          blastLabels[row.phoneNumber] = {
-            blastId: row.blastId,
-            blastName: row.blastName,
-          };
-        }
-      }
-    }
-
-    // Get pinned conversations
+    // Get Pinned Conversations
     const pinnedConvos = await this.pinnedConversationRepository.find({
       where: { userId, sessionPhoneNumber },
       select: ['phoneNumber'],
     });
     const pinnedSet = new Set(pinnedConvos.map((p) => p.phoneNumber));
+    const pinnedPhones = Array.from(pinnedSet);
 
-    // Get contact info from database (name, waName)
-    let contactsMap: Record<string, { name?: string; waName?: string }> = {};
-    if (phoneNumbers.length > 0) {
-      const contacts = await this.contactRepository.find({
-        where: { userId, phoneNumber: In(phoneNumbers) },
-        select: ['phoneNumber', 'name', 'waName'],
-      });
-      contactsMap = contacts.reduce(
-        (acc, c) => {
-          acc[c.phoneNumber] = { name: c.name, waName: c.waName };
-          return acc;
-        },
-        {} as Record<string, { name?: string; waName?: string }>,
+    // Build Query on ChatConversation (Materialized View)
+    const qb = this.chatConversationRepository.createQueryBuilder('c')
+      .where('c.userId = :userId', { userId })
+      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber });
+
+    if (search) {
+      qb.andWhere(
+        '(c.phoneNumber ILIKE :search OR c.contactName ILIKE :search OR c.pushName ILIKE :search OR c.lastMessageBody ILIKE :search)',
+        { search: `%${search}%` },
       );
     }
 
-    // Get pushNames from WhatsApp (as fallback)
-    const waPushNames = await this.whatsAppService.getContactsPushNames(
-      userId,
-      phoneNumbers,
-    );
-
-    // Build data from chat messages
-    const data: Array<{
-      phoneNumber: string;
-      pushName: string | null;
-      contactName: string | null;
-      isPinned: boolean;
-      lastMessage: {
-        id: string;
-        body: string;
-        direction: string;
-        hasMedia: boolean;
-        mediaType?: string;
-        timestamp: Date;
-      } | null;
-      unreadCount: number;
-      campaign: { blastId: string; blastName: string } | null;
-    }> = messages.map((msg) => {
-      const contactInfo = contactsMap[msg.phoneNumber] || {};
-      // Priority: contact.name > contact.waName > WA pushName
-      const displayName =
-        contactInfo.name || contactInfo.waName || waPushNames[msg.phoneNumber] || null;
-
-      return {
-        phoneNumber: msg.phoneNumber,
-        pushName: displayName,
-        contactName: contactInfo.name || null,
-        isPinned: pinnedSet.has(msg.phoneNumber),
-        lastMessage: {
-          id: msg.id,
-          body: msg.body,
-          direction: msg.direction,
-          hasMedia: msg.hasMedia,
-          mediaType: msg.mediaType,
-          timestamp: msg.timestamp,
-        },
-        unreadCount: unreadCounts[msg.phoneNumber] || 0,
-        campaign: blastLabels[msg.phoneNumber] || null,
-      };
-    });
-
-    // Add contacts without chat history (only when searching)
-    if (search && contactOnlyResults.length > 0) {
-      for (const contact of contactOnlyResults) {
-        // Skip if already in chat results
-        if (chatPhoneNumbers.has(contact.phoneNumber)) {
-          continue;
-        }
-
-        data.push({
-          phoneNumber: contact.phoneNumber,
-          pushName: contact.name || contact.waName || null,
-          contactName: contact.name || null,
-          isPinned: pinnedSet.has(contact.phoneNumber),
-          lastMessage: null, // No chat history
-          unreadCount: 0,
-          campaign: null,
-        });
-      }
+    // Sort by Pinned (using PostgreSQL CASE EXPRESSION), then by Timestamp
+    if (pinnedPhones.length > 0) {
+      // Use CASE WHEN to prioritize pinned conversations
+      qb.addSelect(
+        `CASE WHEN c.phoneNumber IN (:...pinnedPhones) THEN 2 ELSE 1 END`,
+        'priority',
+      );
+      qb.setParameter('pinnedPhones', pinnedPhones);
+      qb.orderBy('priority', 'DESC');
+      qb.addOrderBy('c.lastMessageTimestamp', 'DESC');
+    } else {
+      qb.orderBy('c.lastMessageTimestamp', 'DESC');
     }
 
-    // Calculate total including contacts without chat
-    const contactsWithoutChat = search
-      ? contactOnlyResults.filter((c) => !chatPhoneNumbers.has(c.phoneNumber)).length
-      : 0;
-    const total = chatTotal + contactsWithoutChat;
+    // Pagination
+    qb.skip((page - 1) * limit);
+    qb.take(limit);
 
-    // Sort: pinned first, then by timestamp (contacts without chat go last)
-    data.sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      // Contacts without chat history go to the end
-      if (!a.lastMessage && b.lastMessage) return 1;
-      if (a.lastMessage && !b.lastMessage) return -1;
-      if (!a.lastMessage && !b.lastMessage) return 0;
-      return new Date(b.lastMessage!.timestamp).getTime() - new Date(a.lastMessage!.timestamp).getTime();
+    const [conversations, total] = await qb.getManyAndCount();
+
+    // Transform to response format
+    const data = conversations.map((conv) => {
+      return {
+        phoneNumber: conv.phoneNumber,
+        pushName: conv.pushName || null,
+        contactName: conv.contactName || null,
+        isPinned: pinnedSet.has(conv.phoneNumber),
+        lastMessage: conv.lastMessageTimestamp ? {
+          id: conv.lastMessageId || 'old',
+          body: conv.lastMessageBody || '',
+          direction: conv.lastMessageDirection || 'incoming',
+          hasMedia: conv.hasMedia,
+          mediaType: conv.lastMessageType,
+          timestamp: conv.lastMessageTimestamp,
+        } : null,
+        unreadCount: conv.unreadCount,
+        campaign: conv.blastId ? { blastId: conv.blastId, blastName: conv.blastName || 'Blast' } : null,
+      };
     });
 
     return { data, total, page, limit };
@@ -713,6 +562,12 @@ export class ChatsService implements OnModuleInit {
 
     const updated = result.affected || 0;
 
+    // [NEW] Update materialized view
+    await this.chatConversationRepository.update(
+      { userId, sessionPhoneNumber, phoneNumber: normalized },
+      { unreadCount: 0 },
+    );
+
     // Emit WebSocket events if any messages were marked as read
     if (updated > 0) {
       // Emit conversation read event
@@ -843,14 +698,16 @@ export class ChatsService implements OnModuleInit {
       return { unreadCount: 0 };
     }
 
-    const count = await this.chatMessageRepository.count({
-      where: {
-        userId,
-        sessionPhoneNumber,
-        direction: ChatMessageDirection.INCOMING,
-        isRead: false,
-      },
-    });
+    // Optimization: Use ChatConversation unreadCount sum
+    // This is instant compared to counting ChatMessage rows
+    const result = await this.chatConversationRepository
+      .createQueryBuilder('c')
+      .select('SUM(c.unreadCount)', 'sum')
+      .where('c.userId = :userId', { userId })
+      .andWhere('c.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
+      .getRawOne();
+
+    const count = result?.sum ? parseInt(result.sum, 10) : 0;
 
     return { unreadCount: count };
   }
@@ -1159,5 +1016,126 @@ export class ChatsService implements OnModuleInit {
       oldestMessage: oldestResult?.oldest || null,
       messagesOlderThanRetention: expiredCount,
     };
+  }
+  /**
+   * Rebuild materialized view for a user (Migration)
+   */
+  async syncAllConversations(userId: string): Promise<void> {
+    const sessionPhoneNumber = await this.getSessionPhoneNumber(userId);
+    if (!sessionPhoneNumber) return;
+
+    this.logger.log(`Starting conversation sync for user ${userId}...`);
+
+    // Get all unique phone numbers
+    const phones = await this.chatMessageRepository
+      .createQueryBuilder('msg')
+      .select('DISTINCT msg.phoneNumber', 'phoneNumber')
+      .where('msg.userId = :userId', { userId })
+      .andWhere('msg.sessionPhoneNumber = :sessionPhoneNumber', { sessionPhoneNumber })
+      .getRawMany();
+
+    this.logger.log(`Found ${phones.length} conversations to sync.`);
+
+    for (const { phoneNumber } of phones) {
+      // Get last message
+      const lastMessage = await this.chatMessageRepository.findOne({
+        where: { userId, sessionPhoneNumber, phoneNumber },
+        order: { timestamp: 'DESC' },
+        relations: ['blast'],
+      });
+
+      if (lastMessage) {
+        await this.syncConversation(userId, sessionPhoneNumber, phoneNumber, {
+            id: lastMessage.id,
+            body: lastMessage.body,
+            type: lastMessage.messageType,
+            timestamp: lastMessage.timestamp,
+            direction: lastMessage.direction,
+            isRead: lastMessage.isRead,
+            hasMedia: lastMessage.hasMedia,
+            blastId: lastMessage.blastId,
+            blastName: lastMessage.blast?.name
+        });
+      }
+    }
+    this.logger.log(`Conversation sync completed for user ${userId}.`);
+  }
+
+  /**
+   * Sync conversation state to materialized view (ChatConversation)
+   */
+  private async syncConversation(
+    userId: string,
+    sessionPhoneNumber: string,
+    phoneNumber: string,
+    lastMessage: {
+      id?: string;
+      body: string;
+      type: string;
+      timestamp: Date;
+      direction: ChatMessageDirection;
+      isRead: boolean;
+      hasMedia: boolean;
+      blastId?: string;
+      blastName?: string;
+    },
+  ): Promise<void> {
+    try {
+      let conversation = await this.chatConversationRepository.findOne({
+        where: { userId, sessionPhoneNumber, phoneNumber },
+      });
+
+      if (!conversation) {
+        conversation = this.chatConversationRepository.create({
+          userId,
+          sessionPhoneNumber,
+          phoneNumber,
+          unreadCount: 0,
+        });
+      }
+
+      // Update fields
+      conversation.lastMessageId = lastMessage.id;
+      conversation.lastMessageBody = lastMessage.body;
+      conversation.lastMessageType = lastMessage.type;
+      conversation.lastMessageTimestamp = lastMessage.timestamp;
+      conversation.lastMessageDirection = lastMessage.direction;
+      conversation.hasMedia = lastMessage.hasMedia;
+
+      if (lastMessage.blastId) {
+        conversation.blastId = lastMessage.blastId;
+        conversation.blastName = lastMessage.blastName;
+      }
+
+
+      // Update unread count efficiently
+      const unreadCount = await this.chatMessageRepository.count({
+        where: {
+          userId,
+          sessionPhoneNumber,
+          phoneNumber,
+          direction: ChatMessageDirection.INCOMING,
+          isRead: false,
+        },
+      });
+      conversation.unreadCount = unreadCount;
+
+      // Update contact info if needed
+      if (!conversation.contactName) {
+        const contact = await this.contactRepository.findOne({
+          where: { userId, phoneNumber },
+        });
+        if (contact) {
+          conversation.contactName = contact.name;
+          conversation.pushName = contact.waName;
+        }
+      }
+
+      await this.chatConversationRepository.save(conversation);
+    } catch (error) {
+      this.logger.error(
+        `Failed to sync conversation for ${phoneNumber}: ${error}`,
+      );
+    }
   }
 }
