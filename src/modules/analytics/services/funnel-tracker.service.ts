@@ -50,36 +50,13 @@ export class FunnelTrackerService {
     'free ongkir',
   ];
 
-  private readonly closingKeywords = [
-    'deal',
-    'ok fix',
-    'fix order',
-    'sudah transfer',
-    'sudah bayar',
-    'sudah tf',
-    'done transfer',
-    'udah bayar',
-    'udah transfer',
-  ];
-
   // Fallback defaults if settings not found
-  private readonly defaultClosedWon = [
-    'deal',
-    'ok fix',
-    'fix order',
-    'sudah transfer',
-    'sudah bayar',
-    'sudah tf',
-    'done transfer',
-    'udah bayar',
-    'udah transfer',
-  ];
+  private readonly defaultClosedWon = ['sudah transfer'];
 
   private readonly defaultClosedLost = [
     'cancel',
     'batal',
     'gak jadi',
-    'mahal',
     'skip',
     'tidak jadi',
   ];
