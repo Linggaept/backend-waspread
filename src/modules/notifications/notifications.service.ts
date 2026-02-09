@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -82,7 +88,10 @@ export class NotificationsService {
     }
 
     // Send WebSocket notification if channel includes WEBSOCKET or IN_APP
-    if (channels.includes(NotificationChannel.WEBSOCKET) || channels.includes(NotificationChannel.IN_APP)) {
+    if (
+      channels.includes(NotificationChannel.WEBSOCKET) ||
+      channels.includes(NotificationChannel.IN_APP)
+    ) {
       // Send real-time notification
       this.whatsappGateway.sendNotification(options.userId, {
         id: notification.id,
@@ -98,57 +107,65 @@ export class NotificationsService {
       this.whatsappGateway.sendNotificationCount(options.userId, unreadCount);
     }
 
-    this.logger.log(`Notification created: ${options.type} for user ${options.userId}`);
+    this.logger.log(
+      `Notification created: ${options.type} for user ${options.userId}`,
+    );
     return notification;
   }
 
   /**
    * Get notification templates based on type
    */
-  getTemplate(type: NotificationType, data?: Record<string, any>): NotificationTemplateData {
+  getTemplate(
+    type: NotificationType,
+    data?: Record<string, any>,
+  ): NotificationTemplateData {
     const templates: Record<NotificationType, NotificationTemplateData> = {
       // Account
       [NotificationType.WELCOME]: {
-        title: 'Selamat Datang di Waspread! 🎉',
+        title: 'Selamat Datang di Waspread!',
         message: `Halo ${data?.name || 'User'}! Akun Anda telah berhasil dibuat. Mulai kirim pesan WhatsApp massal dengan mudah.`,
         subject: 'Selamat Datang di Waspread!',
       },
       [NotificationType.PASSWORD_CHANGED]: {
         title: 'Password Berhasil Diubah',
-        message: 'Password akun Anda telah berhasil diubah. Jika Anda tidak melakukan ini, segera hubungi support.',
+        message:
+          'Password akun Anda telah berhasil diubah. Jika Anda tidak melakukan ini, segera hubungi support.',
         subject: 'Password Anda Telah Diubah',
       },
 
       // Subscription
       [NotificationType.SUBSCRIPTION_ACTIVATED]: {
-        title: 'Langganan Aktif! ✅',
+        title: 'Langganan Aktif!',
         message: `Paket ${data?.packageName || ''} Anda telah aktif. Kuota: ${data?.quota || 0} pesan. Berlaku hingga ${data?.expiredAt || ''}.`,
         subject: 'Langganan Anda Telah Aktif',
       },
       [NotificationType.SUBSCRIPTION_EXPIRING]: {
-        title: 'Langganan Akan Segera Berakhir ⚠️',
+        title: 'Langganan Akan Segera Berakhir',
         message: `Langganan Anda akan berakhir dalam ${data?.daysLeft || 3} hari. Perpanjang sekarang untuk tetap dapat mengirim pesan.`,
         subject: 'Langganan Anda Akan Segera Berakhir',
       },
       [NotificationType.SUBSCRIPTION_EXPIRED]: {
         title: 'Langganan Telah Berakhir',
-        message: 'Langganan Anda telah berakhir. Perpanjang sekarang untuk melanjutkan pengiriman pesan.',
+        message:
+          'Langganan Anda telah berakhir. Perpanjang sekarang untuk melanjutkan pengiriman pesan.',
         subject: 'Langganan Anda Telah Berakhir',
       },
       [NotificationType.QUOTA_LOW]: {
-        title: 'Kuota Hampir Habis ⚠️',
+        title: 'Kuota Hampir Habis',
         message: `Kuota pesan Anda tersisa ${data?.remaining || 0} dari ${data?.total || 0}. Upgrade paket untuk menambah kuota.`,
         subject: 'Kuota Pesan Hampir Habis',
       },
       [NotificationType.QUOTA_DEPLETED]: {
         title: 'Kuota Habis!',
-        message: 'Kuota pesan Anda telah habis. Upgrade paket atau tunggu periode berikutnya untuk melanjutkan.',
+        message:
+          'Kuota pesan Anda telah habis. Upgrade paket atau tunggu periode berikutnya untuk melanjutkan.',
         subject: 'Kuota Pesan Anda Telah Habis',
       },
 
       // Payment
       [NotificationType.PAYMENT_SUCCESS]: {
-        title: 'Pembayaran Berhasil! 💰',
+        title: 'Pembayaran Berhasil!',
         message: `Pembayaran untuk paket ${data?.packageName || ''} sebesar Rp ${data?.amount?.toLocaleString('id-ID') || 0} telah berhasil.`,
         subject: 'Pembayaran Berhasil',
       },
@@ -165,55 +182,62 @@ export class NotificationsService {
 
       // WhatsApp
       [NotificationType.SESSION_CONNECTED]: {
-        title: 'WhatsApp Terhubung ✅',
+        title: 'WhatsApp Terhubung',
         message: `WhatsApp dengan nomor ${data?.phoneNumber || ''} telah terhubung dan siap digunakan.`,
         subject: 'WhatsApp Berhasil Terhubung',
       },
       [NotificationType.SESSION_DISCONNECTED]: {
         title: 'WhatsApp Terputus',
-        message: 'Sesi WhatsApp Anda telah terputus. Silakan hubungkan kembali untuk melanjutkan.',
+        message:
+          'Sesi WhatsApp Anda telah terputus. Silakan hubungkan kembali untuk melanjutkan.',
         subject: 'WhatsApp Terputus',
       },
       [NotificationType.SESSION_EXPIRED]: {
         title: 'Sesi WhatsApp Expired',
-        message: 'Sesi WhatsApp Anda telah kedaluwarsa. Silakan scan QR code baru untuk menghubungkan kembali.',
+        message:
+          'Sesi WhatsApp Anda telah kedaluwarsa. Silakan scan QR code baru untuk menghubungkan kembali.',
         subject: 'Sesi WhatsApp Kedaluwarsa',
       },
 
       // Blast
       [NotificationType.BLAST_STARTED]: {
-        title: 'Blast Dimulai 🚀',
+        title: 'Blast Dimulai',
         message: `Kampanye "${data?.blastName || ''}" telah dimulai. Total ${data?.totalRecipients || 0} penerima.`,
         subject: 'Kampanye Blast Dimulai',
       },
       [NotificationType.BLAST_COMPLETED]: {
-        title: 'Blast Selesai! ✅',
+        title: 'Blast Selesai',
         message: `Kampanye "${data?.blastName || ''}" telah selesai. Terkirim: ${data?.sent || 0}, Gagal: ${data?.failed || 0}, Invalid: ${data?.invalid || 0}.`,
         subject: 'Kampanye Blast Selesai',
       },
       [NotificationType.BLAST_FAILED]: {
-        title: 'Blast Gagal ❌',
+        title: 'Blast Gagal',
         message: `Kampanye "${data?.blastName || ''}" gagal diproses. ${data?.reason || 'Silakan coba lagi.'}`,
         subject: 'Kampanye Blast Gagal',
       },
       [NotificationType.BLAST_REPLY]: {
-        title: 'Balasan Baru 💬',
+        title: 'Balasan Baru',
         message: `Anda menerima balasan dari ${data?.phoneNumber || ''}: "${data?.preview || ''}"`,
         subject: 'Anda Menerima Balasan Baru',
       },
     };
 
-    return templates[type] || {
-      title: 'Notifikasi',
-      message: 'Anda memiliki notifikasi baru.',
-      subject: 'Notifikasi Baru',
-    };
+    return (
+      templates[type] || {
+        title: 'Notifikasi',
+        message: 'Anda memiliki notifikasi baru.',
+        subject: 'Notifikasi Baru',
+      }
+    );
   }
 
   /**
    * Send email notification
    */
-  private async sendEmailNotification(notification: Notification, email: string): Promise<void> {
+  private async sendEmailNotification(
+    notification: Notification,
+    email: string,
+  ): Promise<void> {
     try {
       const template = this.getTemplate(notification.type, notification.data);
 
@@ -226,7 +250,9 @@ export class NotificationsService {
       notification.emailSent = true;
       await this.notificationRepository.save(notification);
 
-      this.logger.log(`Email notification sent to ${email} for type ${notification.type}`);
+      this.logger.log(
+        `Email notification sent to ${email} for type ${notification.type}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to send email notification: ${error}`);
     }
@@ -235,7 +261,10 @@ export class NotificationsService {
   /**
    * Get HTML email template
    */
-  private getEmailTemplate(notification: Notification, template: NotificationTemplateData): string {
+  private getEmailTemplate(
+    notification: Notification,
+    template: NotificationTemplateData,
+  ): string {
     const typeColors: Record<string, string> = {
       success: '#22c55e',
       warning: '#f59e0b',
@@ -244,13 +273,34 @@ export class NotificationsService {
     };
 
     const getTypeColor = (type: NotificationType): string => {
-      if ([NotificationType.PAYMENT_SUCCESS, NotificationType.SUBSCRIPTION_ACTIVATED, NotificationType.BLAST_COMPLETED, NotificationType.SESSION_CONNECTED].includes(type)) {
+      if (
+        [
+          NotificationType.PAYMENT_SUCCESS,
+          NotificationType.SUBSCRIPTION_ACTIVATED,
+          NotificationType.BLAST_COMPLETED,
+          NotificationType.SESSION_CONNECTED,
+        ].includes(type)
+      ) {
         return typeColors.success;
       }
-      if ([NotificationType.SUBSCRIPTION_EXPIRING, NotificationType.QUOTA_LOW, NotificationType.PAYMENT_PENDING].includes(type)) {
+      if (
+        [
+          NotificationType.SUBSCRIPTION_EXPIRING,
+          NotificationType.QUOTA_LOW,
+          NotificationType.PAYMENT_PENDING,
+        ].includes(type)
+      ) {
         return typeColors.warning;
       }
-      if ([NotificationType.PAYMENT_FAILED, NotificationType.BLAST_FAILED, NotificationType.SESSION_EXPIRED, NotificationType.QUOTA_DEPLETED, NotificationType.SUBSCRIPTION_EXPIRED].includes(type)) {
+      if (
+        [
+          NotificationType.PAYMENT_FAILED,
+          NotificationType.BLAST_FAILED,
+          NotificationType.SESSION_EXPIRED,
+          NotificationType.QUOTA_DEPLETED,
+          NotificationType.SUBSCRIPTION_EXPIRED,
+        ].includes(type)
+      ) {
         return typeColors.error;
       }
       return typeColors.info;
@@ -305,7 +355,11 @@ export class NotificationsService {
   /**
    * Helper methods for common notifications
    */
-  async notifyWelcome(userId: string, email: string, name?: string): Promise<Notification> {
+  async notifyWelcome(
+    userId: string,
+    email: string,
+    name?: string,
+  ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.WELCOME, { name });
     return this.notify({
       userId,
@@ -326,21 +380,35 @@ export class NotificationsService {
     expiredAt: string,
   ): Promise<Notification> {
     const data = { packageName, quota, expiredAt };
-    const template = this.getTemplate(NotificationType.SUBSCRIPTION_ACTIVATED, data);
+    const template = this.getTemplate(
+      NotificationType.SUBSCRIPTION_ACTIVATED,
+      data,
+    );
     return this.notify({
       userId,
       type: NotificationType.SUBSCRIPTION_ACTIVATED,
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET],
+      channels: [
+        NotificationChannel.IN_APP,
+        NotificationChannel.EMAIL,
+        NotificationChannel.WEBSOCKET,
+      ],
       email,
     });
   }
 
-  async notifySubscriptionExpiring(userId: string, email: string, daysLeft: number): Promise<Notification> {
+  async notifySubscriptionExpiring(
+    userId: string,
+    email: string,
+    daysLeft: number,
+  ): Promise<Notification> {
     const data = { daysLeft };
-    const template = this.getTemplate(NotificationType.SUBSCRIPTION_EXPIRING, data);
+    const template = this.getTemplate(
+      NotificationType.SUBSCRIPTION_EXPIRING,
+      data,
+    );
     return this.notify({
       userId,
       type: NotificationType.SUBSCRIPTION_EXPIRING,
@@ -352,19 +420,30 @@ export class NotificationsService {
     });
   }
 
-  async notifySubscriptionExpired(userId: string, email: string): Promise<Notification> {
+  async notifySubscriptionExpired(
+    userId: string,
+    email: string,
+  ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.SUBSCRIPTION_EXPIRED);
     return this.notify({
       userId,
       type: NotificationType.SUBSCRIPTION_EXPIRED,
       title: template.title,
       message: template.message,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET],
+      channels: [
+        NotificationChannel.IN_APP,
+        NotificationChannel.EMAIL,
+        NotificationChannel.WEBSOCKET,
+      ],
       email,
     });
   }
 
-  async notifyQuotaLow(userId: string, remaining: number, total: number): Promise<Notification> {
+  async notifyQuotaLow(
+    userId: string,
+    remaining: number,
+    total: number,
+  ): Promise<Notification> {
     const data = { remaining, total };
     const template = this.getTemplate(NotificationType.QUOTA_LOW, data);
     return this.notify({
@@ -377,14 +456,21 @@ export class NotificationsService {
     });
   }
 
-  async notifyQuotaDepleted(userId: string, email: string): Promise<Notification> {
+  async notifyQuotaDepleted(
+    userId: string,
+    email: string,
+  ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.QUOTA_DEPLETED);
     return this.notify({
       userId,
       type: NotificationType.QUOTA_DEPLETED,
       title: template.title,
       message: template.message,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET],
+      channels: [
+        NotificationChannel.IN_APP,
+        NotificationChannel.EMAIL,
+        NotificationChannel.WEBSOCKET,
+      ],
       email,
     });
   }
@@ -403,12 +489,20 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET],
+      channels: [
+        NotificationChannel.IN_APP,
+        NotificationChannel.EMAIL,
+        NotificationChannel.WEBSOCKET,
+      ],
       email,
     });
   }
 
-  async notifyPaymentFailed(userId: string, email: string, packageName: string): Promise<Notification> {
+  async notifyPaymentFailed(
+    userId: string,
+    email: string,
+    packageName: string,
+  ): Promise<Notification> {
     const data = { packageName };
     const template = this.getTemplate(NotificationType.PAYMENT_FAILED, data);
     return this.notify({
@@ -443,7 +537,12 @@ export class NotificationsService {
     });
   }
 
-  async notifyBlastFailed(userId: string, email: string, blastName: string, reason?: string): Promise<Notification> {
+  async notifyBlastFailed(
+    userId: string,
+    email: string,
+    blastName: string,
+    reason?: string,
+  ): Promise<Notification> {
     const data = { blastName, reason };
     const template = this.getTemplate(NotificationType.BLAST_FAILED, data);
     return this.notify({
@@ -457,7 +556,11 @@ export class NotificationsService {
     });
   }
 
-  async notifyBlastReply(userId: string, phoneNumber: string, preview: string): Promise<Notification> {
+  async notifyBlastReply(
+    userId: string,
+    phoneNumber: string,
+    preview: string,
+  ): Promise<Notification> {
     const data = { phoneNumber, preview: preview.substring(0, 50) };
     const template = this.getTemplate(NotificationType.BLAST_REPLY, data);
     return this.notify({
@@ -470,7 +573,10 @@ export class NotificationsService {
     });
   }
 
-  async notifySessionConnected(userId: string, phoneNumber: string): Promise<Notification> {
+  async notifySessionConnected(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<Notification> {
     const data = { phoneNumber };
     const template = this.getTemplate(NotificationType.SESSION_CONNECTED, data);
     return this.notify({
@@ -536,7 +642,10 @@ export class NotificationsService {
     });
   }
 
-  async markAsRead(userId: string, notificationId: string): Promise<Notification> {
+  async markAsRead(
+    userId: string,
+    notificationId: string,
+  ): Promise<Notification> {
     const notification = await this.notificationRepository.findOne({
       where: { id: notificationId, userId },
     });

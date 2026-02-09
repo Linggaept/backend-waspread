@@ -12,7 +12,10 @@ export class CreatePackageDto {
   @IsString()
   name: string;
 
-  @ApiPropertyOptional({ example: 'Starter pack for small business', description: 'Package description' })
+  @ApiPropertyOptional({
+    example: 'Starter pack for small business',
+    description: 'Package description',
+  })
   @IsString()
   @IsOptional()
   description?: string;
@@ -22,30 +25,50 @@ export class CreatePackageDto {
   @Min(0)
   price: number;
 
-  @ApiPropertyOptional({ example: 30, description: 'Duration in days', default: 30 })
+  @ApiPropertyOptional({
+    example: 30,
+    description: 'Duration in days',
+    default: 30,
+  })
   @IsNumber()
   @IsOptional()
   @Min(1)
   durationDays?: number;
 
-  @ApiPropertyOptional({ example: 1000, description: 'Monthly message quota', default: 1000 })
+  @ApiPropertyOptional({
+    example: 1000,
+    description: 'Monthly message quota',
+    default: 1000,
+  })
   @IsNumber()
   @IsOptional()
   @Min(1)
   monthlyQuota?: number;
 
-  @ApiPropertyOptional({ example: 100, description: 'Daily message limit', default: 100 })
+  @ApiPropertyOptional({
+    example: 100,
+    description: 'Daily message limit',
+    default: 100,
+  })
   @IsNumber()
   @IsOptional()
   @Min(1)
   dailyLimit?: number;
 
-  @ApiPropertyOptional({ example: true, description: 'Is package active', default: true })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Is package active',
+    default: true,
+  })
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ example: true, description: 'Can users purchase this package (false = display only)', default: true })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Can users purchase this package (false = display only)',
+    default: true,
+  })
   @IsBoolean()
   @IsOptional()
   isPurchasable?: boolean;
@@ -62,7 +85,10 @@ export class UpdatePackageDto {
   @IsOptional()
   name?: string;
 
-  @ApiPropertyOptional({ example: 'Starter pack for small business', description: 'Package description' })
+  @ApiPropertyOptional({
+    example: 'Starter pack for small business',
+    description: 'Package description',
+  })
   @IsString()
   @IsOptional()
   description?: string;
@@ -96,7 +122,10 @@ export class UpdatePackageDto {
   @IsOptional()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ example: true, description: 'Can users purchase this package (false = display only)' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Can users purchase this package (false = display only)',
+  })
   @IsBoolean()
   @IsOptional()
   isPurchasable?: boolean;

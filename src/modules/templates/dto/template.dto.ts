@@ -35,7 +35,8 @@ export class CreateTemplateDto {
 
   @ApiPropertyOptional({
     example: ['name', 'product'],
-    description: 'List of variable names used in message (auto-detected from {variable} patterns)',
+    description:
+      'List of variable names used in message (auto-detected from {variable} patterns)',
   })
   @IsArray()
   @IsString({ each: true })
@@ -45,7 +46,10 @@ export class CreateTemplateDto {
       try {
         return JSON.parse(value);
       } catch {
-        return value.split(',').map((s: string) => s.trim()).filter(Boolean);
+        return value
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
       }
     }
     return value;
@@ -84,7 +88,10 @@ export class TemplateResponseDto {
   @ApiPropertyOptional({ description: 'Media file URL' })
   mediaUrl?: string;
 
-  @ApiPropertyOptional({ enum: ['image', 'video', 'audio', 'document'], description: 'Type of media' })
+  @ApiPropertyOptional({
+    enum: ['image', 'video', 'audio', 'document'],
+    description: 'Type of media',
+  })
   mediaType?: string;
 
   @ApiPropertyOptional()
@@ -120,7 +127,10 @@ export class TemplateQueryDto {
   @IsOptional()
   category?: string;
 
-  @ApiPropertyOptional({ example: true, description: 'Filter by active status' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Filter by active status',
+  })
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {
@@ -137,7 +147,11 @@ export class TemplateQueryDto {
   @Transform(({ value }) => parseInt(value) || 1)
   page?: number;
 
-  @ApiPropertyOptional({ example: 20, description: 'Items per page', default: 20 })
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Items per page',
+    default: 20,
+  })
   @IsOptional()
   @Transform(({ value }) => Math.min(parseInt(value) || 20, 100))
   limit?: number;

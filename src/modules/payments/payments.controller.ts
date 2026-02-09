@@ -10,9 +10,18 @@ import {
   Query,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
-import { CreatePaymentDto, MidtransNotificationDto, PaymentQueryDto } from './dto';
+import {
+  CreatePaymentDto,
+  MidtransNotificationDto,
+  PaymentQueryDto,
+} from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,13 +37,20 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create payment / checkout' })
-  @ApiResponse({ status: 201, description: 'Payment created, returns Snap token and redirect URL' })
+  @ApiResponse({
+    status: 201,
+    description: 'Payment created, returns Snap token and redirect URL',
+  })
   createPayment(
     @CurrentUser('id') userId: string,
     @CurrentUser('email') userEmail: string,
     @Body() createPaymentDto: CreatePaymentDto,
   ) {
-    return this.paymentsService.createPayment(userId, userEmail, createPaymentDto);
+    return this.paymentsService.createPayment(
+      userId,
+      userEmail,
+      createPaymentDto,
+    );
   }
 
   @Post('notification')

@@ -8,4 +8,10 @@ export * from './blast-reply.entity';
 export * from './password-reset.entity';
 export * from './audit-log.entity';
 export * from './notification.entity';
-
+export * from './chat-message.entity';
+export * from './ai-knowledge-base.entity';
+export * from './ai-settings.entity';
+export * from './lead-score.entity';
+export * from './lead-score-settings.entity';
+export * from './conversation-funnel.entity';
+export * from './analytics-snapshot.entity';

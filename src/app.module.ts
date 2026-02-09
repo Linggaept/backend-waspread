@@ -21,7 +21,21 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig } from './config';
+import { CopywritingModule } from './modules/copywriting/copywriting.module';
+import { ChatsModule } from './modules/chats/chats.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { AiModule } from './modules/ai/ai.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { ProductsModule } from './modules/products/products.module';
+import {
+  databaseConfig,
+  redisConfig,
+  appConfig,
+  midtransConfig,
+  mailConfig,
+  geminiConfig,
+} from './config';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -29,16 +43,25 @@ import { validate } from './config/env.validation';
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, redisConfig, appConfig, midtransConfig, mailConfig],
+      load: [
+        databaseConfig,
+        redisConfig,
+        appConfig,
+        midtransConfig,
+        mailConfig,
+        geminiConfig,
+      ],
       envFilePath: ['.env'],
       validate,
     }),
 
     // Rate limiting
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 100,
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
 
     // Serve static files (uploads)
     ServeStaticModule.forRoot({
@@ -66,6 +89,13 @@ import { validate } from './config/env.validation';
     TemplatesModule,
     AuditModule,
     NotificationsModule,
+    CopywritingModule,
+    ChatsModule,
+    SettingsModule,
+    AiModule,
+    LeadsModule,
+    AnalyticsModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [

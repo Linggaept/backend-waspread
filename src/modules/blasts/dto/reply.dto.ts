@@ -30,7 +30,9 @@ export class BlastReplyDto {
   @ApiPropertyOptional({ description: 'Media URL if reply contains media' })
   mediaUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Media type: image, video, audio, document' })
+  @ApiPropertyOptional({
+    description: 'Media type: image, video, audio, document',
+  })
   mediaType?: string;
 
   @ApiProperty({ description: 'When the reply was received' })
@@ -54,14 +56,21 @@ export class ReplyQueryDto {
   @Transform(({ value }) => parseInt(value, 10) || 1)
   page?: number;
 
-  @ApiPropertyOptional({ example: 20, description: 'Items per page', default: 20 })
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Items per page',
+    default: 20,
+  })
   @IsOptional()
   @IsNumber()
   @Min(1)
   @Transform(({ value }) => parseInt(value, 10) || 20)
   limit?: number;
 
-  @ApiPropertyOptional({ example: false, description: 'Filter unread replies only' })
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Filter unread replies only',
+  })
   @IsOptional()
   @IsBoolean()
   @Transform(({ value }) => {
@@ -71,7 +80,10 @@ export class ReplyQueryDto {
   })
   unreadOnly?: boolean;
 
-  @ApiPropertyOptional({ example: '628123456789', description: 'Filter by phone number' })
+  @ApiPropertyOptional({
+    example: '628123456789',
+    description: 'Filter by phone number',
+  })
   @IsOptional()
   @IsString()
   phoneNumber?: string;

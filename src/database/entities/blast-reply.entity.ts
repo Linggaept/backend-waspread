@@ -11,11 +11,16 @@ import { Blast, BlastMessage } from './blast.entity';
 
 @Entity('blast_replies')
 @Index(['blastId', 'createdAt'])
+@Index(['blastId', 'receivedAt']) // For blast-specific replies listing
 @Index(['blastMessageId'])
 @Index(['phoneNumber', 'receivedAt'])
+@Index(['userId', 'isRead']) // For unread replies query optimization
 export class BlastReply {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Column({ nullable: true })
+  userId?: string; // For user-scoped queries (nullable for backward compatibility)
 
   @ManyToOne(() => Blast)
   @JoinColumn({ name: 'blastId' })

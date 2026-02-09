@@ -1,12 +1,12 @@
 /**
  * Timezone Utility
- * 
+ *
  * BEST PRACTICE: Backend stores UTC, Frontend converts.
- * 
+ *
  * - Backend: Store all dates in UTC (using new Date())
  * - API Response: Send dates as ISO strings (UTC)
  * - Frontend: Convert UTC to user's timezone for display
- * 
+ *
  * This file provides utility functions for date operations.
  * Since we're using UTC, most functions are simple wrappers.
  */

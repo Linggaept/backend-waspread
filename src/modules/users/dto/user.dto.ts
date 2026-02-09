@@ -1,13 +1,26 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  MinLength,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole, UserStatus } from '../../../database/entities/user.entity';
 
 export class CreateUserDto {
-  @ApiProperty({ example: 'user@example.com', description: 'User email address' })
+  @ApiProperty({
+    example: 'user@example.com',
+    description: 'User email address',
+  })
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'password123', description: 'Password (min 6 chars)', minLength: 6 })
+  @ApiProperty({
+    example: 'password123',
+    description: 'Password (min 6 chars)',
+    minLength: 6,
+  })
   @IsString()
   @MinLength(6)
   password: string;
@@ -22,7 +35,11 @@ export class CreateUserDto {
   @IsOptional()
   phone?: string;
 
-  @ApiPropertyOptional({ enum: UserRole, example: UserRole.USER, description: 'User role' })
+  @ApiPropertyOptional({
+    enum: UserRole,
+    example: UserRole.USER,
+    description: 'User role',
+  })
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;
@@ -39,12 +56,20 @@ export class UpdateUserDto {
   @IsOptional()
   phone?: string;
 
-  @ApiPropertyOptional({ enum: UserStatus, example: UserStatus.ACTIVE, description: 'User status' })
+  @ApiPropertyOptional({
+    enum: UserStatus,
+    example: UserStatus.ACTIVE,
+    description: 'User status',
+  })
   @IsEnum(UserStatus)
   @IsOptional()
   status?: UserStatus;
 
-  @ApiPropertyOptional({ enum: UserRole, example: UserRole.USER, description: 'User role' })
+  @ApiPropertyOptional({
+    enum: UserRole,
+    example: UserRole.USER,
+    description: 'User role',
+  })
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;

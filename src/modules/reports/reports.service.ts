@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
-import { Blast, BlastStatus, BlastMessage } from '../../database/entities/blast.entity';
+import {
+  Blast,
+  BlastStatus,
+  BlastMessage,
+} from '../../database/entities/blast.entity';
 import { Payment, PaymentStatus } from '../../database/entities/payment.entity';
 import { Subscription } from '../../database/entities/subscription.entity';
 import { User } from '../../database/entities/user.entity';
@@ -34,16 +38,27 @@ export class ReportsService {
     const blasts = await this.blastRepository.find({ where: { userId } });
 
     const totalBlasts = blasts.length;
-    const completedBlasts = blasts.filter((b) => b.status === BlastStatus.COMPLETED).length;
-    const processingBlasts = blasts.filter((b) => b.status === BlastStatus.PROCESSING).length;
-    const cancelledBlasts = blasts.filter((b) => b.status === BlastStatus.CANCELLED).length;
+    const completedBlasts = blasts.filter(
+      (b) => b.status === BlastStatus.COMPLETED,
+    ).length;
+    const processingBlasts = blasts.filter(
+      (b) => b.status === BlastStatus.PROCESSING,
+    ).length;
+    const cancelledBlasts = blasts.filter(
+      (b) => b.status === BlastStatus.CANCELLED,
+    ).length;
     const totalMessagesSent = blasts.reduce((sum, b) => sum + b.sentCount, 0);
-    const totalMessagesFailed = blasts.reduce((sum, b) => sum + b.failedCount, 0);
+    const totalMessagesFailed = blasts.reduce(
+      (sum, b) => sum + b.failedCount,
+      0,
+    );
     const totalMessages = totalMessagesSent + totalMessagesFailed;
-    const successRate = totalMessages > 0 ? (totalMessagesSent / totalMessages) * 100 : 0;
+    const successRate =
+      totalMessages > 0 ? (totalMessagesSent / totalMessages) * 100 : 0;
 
     // Get subscription info
-    const subscription = await this.subscriptionsService.getActiveSubscription(userId);
+    const subscription =
+      await this.subscriptionsService.getActiveSubscription(userId);
     const quotaCheck = await this.subscriptionsService.checkQuota(userId);
 
     return {
@@ -68,7 +83,10 @@ export class ReportsService {
     const whereCondition: Record<string, unknown> = { userId };
 
     if (startDate && endDate) {
-      whereCondition.createdAt = Between(new Date(startDate), new Date(endDate));
+      whereCondition.createdAt = Between(
+        new Date(startDate),
+        new Date(endDate),
+      );
     } else if (startDate) {
       whereCondition.createdAt = MoreThanOrEqual(new Date(startDate));
     } else if (endDate) {
@@ -82,8 +100,9 @@ export class ReportsService {
 
     return blasts.map((blast) => {
       const totalProcessed = blast.sentCount + blast.failedCount;
-      const successRate = totalProcessed > 0 ? (blast.sentCount / totalProcessed) * 100 : 0;
-      
+      const successRate =
+        totalProcessed > 0 ? (blast.sentCount / totalProcessed) * 100 : 0;
+
       let durationSeconds: number | undefined;
       if (blast.startedAt && blast.completedAt) {
         durationSeconds = Math.round(
@@ -107,7 +126,10 @@ export class ReportsService {
     });
   }
 
-  async getMessageReport(userId: string, blastId: string): Promise<MessageReportDto[]> {
+  async getMessageReport(
+    userId: string,
+    blastId: string,
+  ): Promise<MessageReportDto[]> {
     // Verify blast ownership
     const blast = await this.blastRepository.findOne({
       where: { id: blastId, userId },
@@ -205,7 +227,9 @@ export class ReportsService {
     const reports: AdminUserReportDto[] = [];
 
     for (const user of users) {
-      const blasts = await this.blastRepository.find({ where: { userId: user.id } });
+      const blasts = await this.blastRepository.find({
+        where: { userId: user.id },
+      });
       const subscription = await this.subscriptionRepository.findOne({
         where: { userId: user.id },
         relations: ['package'],
@@ -265,19 +289,22 @@ export class ReportsService {
       packageMap.set(packageName, existing);
     }
 
-    const packageBreakdown = Array.from(packageMap.entries()).map(([name, data]) => ({
-      packageName: name,
-      count: data.count,
-      revenue: data.revenue,
-    }));
+    const packageBreakdown = Array.from(packageMap.entries()).map(
+      ([name, data]) => ({
+        packageName: name,
+        count: data.count,
+        revenue: data.revenue,
+      }),
+    );
 
-    const period = startDate && endDate
-      ? `${startDate} to ${endDate}`
-      : startDate
-      ? `From ${startDate}`
-      : endDate
-      ? `Until ${endDate}`
-      : 'All time';
+    const period =
+      startDate && endDate
+        ? `${startDate} to ${endDate}`
+        : startDate
+          ? `From ${startDate}`
+          : endDate
+            ? `Until ${endDate}`
+            : 'All time';
 
     return {
       period,
@@ -307,7 +334,10 @@ export class ReportsService {
 
     const allBlasts = await this.blastRepository.find();
     const totalBlasts = allBlasts.length;
-    const totalMessagesSent = allBlasts.reduce((sum, b) => sum + b.sentCount, 0);
+    const totalMessagesSent = allBlasts.reduce(
+      (sum, b) => sum + b.sentCount,
+      0,
+    );
 
     const todayBlasts = await this.blastRepository.count({
       where: { createdAt: MoreThanOrEqual(today) },
@@ -316,12 +346,18 @@ export class ReportsService {
     const todayBlastsData = await this.blastRepository.find({
       where: { createdAt: MoreThanOrEqual(today) },
     });
-    const todayMessages = todayBlastsData.reduce((sum, b) => sum + b.sentCount, 0);
+    const todayMessages = todayBlastsData.reduce(
+      (sum, b) => sum + b.sentCount,
+      0,
+    );
 
     const successfulPayments = await this.paymentRepository.find({
       where: { status: PaymentStatus.SUCCESS },
     });
-    const totalRevenue = successfulPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalRevenue = successfulPayments.reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
 
     return {
       totalUsers,

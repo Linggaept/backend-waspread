@@ -1,5 +1,13 @@
 import { plainToInstance } from 'class-transformer';
-import { IsString, IsNumber, IsOptional, IsBoolean, validateSync, Min, IsEmail } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsBoolean,
+  validateSync,
+  Min,
+  IsEmail,
+} from 'class-validator';
 
 export class EnvironmentVariables {
   // Database
@@ -92,6 +100,15 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   MAIL_FROM?: string;
+
+  // Gemini AI (Optional)
+  @IsString()
+  @IsOptional()
+  GEMINI_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  GEMINI_MODEL?: string;
 }
 
 export function validate(config: Record<string, unknown>) {
@@ -108,7 +125,9 @@ export function validate(config: Record<string, unknown>) {
       const constraints = Object.values(err.constraints || {}).join(', ');
       return `${err.property}: ${constraints}`;
     });
-    throw new Error(`\n❌ Environment validation failed:\n  - ${errorMessages.join('\n  - ')}\n`);
+    throw new Error(
+      `\n❌ Environment validation failed:\n  - ${errorMessages.join('\n  - ')}\n`,
+    );
   }
 
   return validatedConfig;

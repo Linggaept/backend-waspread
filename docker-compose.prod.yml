@@ -44,8 +44,7 @@ services:
       - MAX_WA_SESSIONS=${MAX_WA_SESSIONS:-1000}
       - WA_IDLE_TIMEOUT_MINUTES=${WA_IDLE_TIMEOUT_MINUTES:-15}
     volumes:
-      - .wwebjs_auth:/usr/src/app/.wwebjs_auth
-      - .wwebjs_cache:/usr/src/app/.wwebjs_cache
+      - baileys_auth:/usr/src/app/.baileys_auth
       - uploads_data:/usr/src/app/uploads
     depends_on:
       - postgres
@@ -84,5 +83,4 @@ volumes:
   postgres_data:
   redis_data:
   uploads_data:
-  .wwebjs_auth:
-  .wwebjs_cache:
+  baileys_auth:

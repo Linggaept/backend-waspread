@@ -28,8 +28,11 @@ export class StorageService {
   constructor(private readonly configService: ConfigService) {
     const accountId = this.configService.get<string>('R2_ACCOUNT_ID');
     const accessKeyId = this.configService.get<string>('R2_ACCESS_KEY_ID');
-    const secretAccessKey = this.configService.get<string>('R2_SECRET_ACCESS_KEY');
-    this.bucket = this.configService.get<string>('R2_BUCKET_NAME') || 'waspread';
+    const secretAccessKey = this.configService.get<string>(
+      'R2_SECRET_ACCESS_KEY',
+    );
+    this.bucket =
+      this.configService.get<string>('R2_BUCKET_NAME') || 'waspread';
     this.publicUrl = this.configService.get<string>('R2_PUBLIC_URL') || '';
 
     this.isEnabled = !!(accountId && accessKeyId && secretAccessKey);
@@ -38,6 +41,7 @@ export class StorageService {
       this.s3Client = new S3Client({
         region: 'auto',
         endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        forcePathStyle: true, // Required for R2 to avoid bucket.account.r2... hostname issues
         credentials: {
           accessKeyId: accessKeyId!,
           secretAccessKey: secretAccessKey!,
@@ -45,7 +49,9 @@ export class StorageService {
       });
       this.logger.log('Cloudflare R2 storage initialized');
     } else {
-      this.logger.warn('Cloudflare R2 not configured, falling back to local storage');
+      this.logger.warn(
+        'Cloudflare R2 not configured, falling back to local storage',
+      );
     }
   }
 
@@ -57,7 +63,7 @@ export class StorageService {
    * Compress image using Sharp
    */
   async compressImage(
-    inputPath: string,
+    input: string | Buffer,
     options?: { quality?: number; maxWidth?: number; maxHeight?: number },
   ): Promise<Buffer> {
     const quality = options?.quality || 80;
@@ -66,7 +72,7 @@ export class StorageService {
 
     const sharpModule = await import('sharp');
     const sharpFn = sharpModule.default || sharpModule;
-    const image = sharpFn(inputPath);
+    const image = sharpFn(input);
     const metadata = await image.metadata();
 
     // Determine output format based on input
@@ -89,7 +95,7 @@ export class StorageService {
     }
 
     const buffer = await pipeline.toBuffer();
-    
+
     this.logger.debug(
       `Compressed image: ${metadata.size} bytes → ${buffer.length} bytes (${Math.round((1 - buffer.length / (metadata.size || buffer.length)) * 100)}% reduction)`,
     );
@@ -132,27 +138,90 @@ export class StorageService {
   }
 
   /**
-   * Compress and upload image to R2
+   * Upload (and optionally compress) file to R2
+   */
+  async uploadFileToR2(
+    filePath: string,
+    userId: string,
+    originalName: string,
+  ): Promise<UploadResult> {
+    const ext = path.extname(originalName).toLowerCase();
+    const isImage = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext);
+
+    let buffer = await fs.promises.readFile(filePath);
+    let contentType = isImage
+      ? `image/${ext.replace('.', '')}`
+      : 'application/octet-stream';
+
+    // Compress if image
+    if (isImage) {
+      buffer = (await this.compressImage(filePath)) as any;
+      contentType = 'image/jpeg'; // Compressed images are mostly JPEGs
+    }
+
+    const key = `uploads/${userId}/${Date.now()}-${path.basename(originalName)}`;
+    return this.uploadToR2(buffer, key, contentType);
+  }
+
+  /**
+   * Universal upload handler (R2 or Local)
+   */
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = 'misc',
+  ): Promise<UploadResult> {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    const key = `${folder}/${filename}`;
+
+    // 1. Convert buffer if needed
+    let buffer = file.buffer;
+    if (!buffer && file.path) {
+      buffer = await fs.promises.readFile(file.path);
+    }
+
+    // 2. Compress if image
+    const isImage = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext);
+    if (isImage) {
+      try {
+        buffer = (await this.compressImage(buffer)) as any;
+      } catch (error) {
+        this.logger.warn(`Failed to compress image buffer: ${error.message}`);
+      }
+    }
+
+    // 3. Upload to R2 if enabled
+    if (this.isEnabled) {
+      const contentType = file.mimetype;
+      return this.uploadToR2(buffer, key, contentType);
+    }
+
+    // 4. Fallback: Save locally
+    const uploadDir = path.join(process.cwd(), 'uploads', folder);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const filePath = path.join(uploadDir, filename);
+    await fs.promises.writeFile(filePath, buffer);
+
+    const publicUrl = process.env.APP_URL || 'http://localhost:3000';
+    return {
+      url: `${publicUrl}/uploads/${folder}/${filename}`,
+      key: key,
+      size: file.size,
+    };
+  }
+
+  /**
+   * Compress and upload image to R2 (Deprecated: use uploadFileToR2)
    */
   async compressAndUpload(
     filePath: string,
     userId: string,
     originalName: string,
   ): Promise<UploadResult> {
-    // Compress image
-    const compressedBuffer = await this.compressImage(filePath);
-
-    // Generate unique key
-    const ext = path.extname(originalName).toLowerCase() || '.jpg';
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 8);
-    const key = `images/${userId}/${timestamp}-${randomId}${ext}`;
-
-    // Determine content type
-    const contentType = this.getContentType(ext);
-
-    // Upload to R2
-    return this.uploadToR2(compressedBuffer, key, contentType);
+    return this.uploadFileToR2(filePath, userId, originalName);
   }
 
   /**
@@ -196,7 +265,7 @@ export class StorageService {
     // Convert stream to buffer
     const chunks: Buffer[] = [];
     const stream = response.Body as Readable;
-    
+
     return new Promise((resolve, reject) => {
       stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       stream.on('error', reject);
@@ -226,11 +295,42 @@ export class StorageService {
 
   private getContentType(ext: string): string {
     const types: Record<string, string> = {
+      // Images
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
       '.gif': 'image/gif',
       '.webp': 'image/webp',
+
+      // Documents
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx':
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.txt': 'text/plain',
+      '.csv': 'text/csv',
+
+      // Video
+      '.mp4': 'video/mp4',
+      '.mov': 'video/quicktime',
+      '.avi': 'video/x-msvideo',
+      '.webm': 'video/webm',
+
+      // Audio
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.m4a': 'audio/mp4',
+
+      // Archives
+      '.zip': 'application/zip',
+      '.rar': 'application/x-rar-compressed',
     };
     return types[ext] || 'application/octet-stream';
   }

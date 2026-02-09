@@ -1,10 +1,10 @@
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
 import { SubscriptionQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -29,7 +29,10 @@ export class SubscriptionsController {
 
   @Get('quota')
   @ApiOperation({ summary: 'Check remaining quota' })
-  @ApiResponse({ status: 200, description: 'Quota status (hasSubscription, remainingQuota, etc.)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Quota status (hasSubscription, remainingQuota, etc.)',
+  })
   checkQuota(@CurrentUser('id') userId: string) {
     return this.subscriptionsService.checkQuota(userId);
   }
@@ -45,7 +48,10 @@ export class SubscriptionsController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all subscriptions with pagination (Admin)' })
-  @ApiResponse({ status: 200, description: 'Paginated list of all subscriptions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of all subscriptions',
+  })
   async findAll(@Query() query: SubscriptionQueryDto) {
     const { data, total } = await this.subscriptionsService.findAll(query);
     return {
@@ -57,4 +63,3 @@ export class SubscriptionsController {
     };
   }
 }
-

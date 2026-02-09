@@ -1,10 +1,10 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateTemplateTable1769940910829 implements MigrationInterface {
-    name = 'CreateTemplateTable1769940910829'
+  name = 'CreateTemplateTable1769940910829';
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
             CREATE TABLE "templates" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "userId" uuid NOT NULL,
@@ -21,20 +21,26 @@ export class CreateTemplateTable1769940910829 implements MigrationInterface {
                 CONSTRAINT "PK_templates_id" PRIMARY KEY ("id")
             )
         `);
-        await queryRunner.query(`CREATE INDEX "IDX_templates_userId" ON "templates" ("userId")`);
-        await queryRunner.query(`CREATE INDEX "IDX_templates_userId_category" ON "templates" ("userId", "category")`);
-        await queryRunner.query(`
+    await queryRunner.query(
+      `CREATE INDEX "IDX_templates_userId" ON "templates" ("userId")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_templates_userId_category" ON "templates" ("userId", "category")`,
+    );
+    await queryRunner.query(`
             ALTER TABLE "templates"
             ADD CONSTRAINT "FK_templates_userId"
             FOREIGN KEY ("userId") REFERENCES "users"("id")
             ON DELETE CASCADE ON UPDATE NO ACTION
         `);
-    }
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "templates" DROP CONSTRAINT "FK_templates_userId"`);
-        await queryRunner.query(`DROP INDEX "IDX_templates_userId_category"`);
-        await queryRunner.query(`DROP INDEX "IDX_templates_userId"`);
-        await queryRunner.query(`DROP TABLE "templates"`);
-    }
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `ALTER TABLE "templates" DROP CONSTRAINT "FK_templates_userId"`,
+    );
+    await queryRunner.query(`DROP INDEX "IDX_templates_userId_category"`);
+    await queryRunner.query(`DROP INDEX "IDX_templates_userId"`);
+    await queryRunner.query(`DROP TABLE "templates"`);
+  }
 }

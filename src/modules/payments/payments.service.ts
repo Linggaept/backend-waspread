@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,7 +13,11 @@ import * as Midtrans from 'midtrans-client';
 import { Payment, PaymentStatus } from '../../database/entities/payment.entity';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { CreatePaymentDto, MidtransNotificationDto, PaymentQueryDto } from './dto';
+import {
+  CreatePaymentDto,
+  MidtransNotificationDto,
+  PaymentQueryDto,
+} from './dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../../database/entities/user.entity';
 
@@ -27,33 +37,58 @@ export class PaymentsService {
     private readonly notificationsService: NotificationsService,
   ) {
     // Try both methods to get the key
-    const serverKey = this.configService.get<string>('midtrans.serverKey') || process.env.MIDTRANS_SERVER_KEY;
-    const clientKey = this.configService.get<string>('midtrans.clientKey') || process.env.MIDTRANS_CLIENT_KEY;
+    const serverKey =
+      this.configService.get<string>('midtrans.serverKey') ||
+      process.env.MIDTRANS_SERVER_KEY;
+    const clientKey =
+      this.configService.get<string>('midtrans.clientKey') ||
+      process.env.MIDTRANS_CLIENT_KEY;
 
     // Use nullish coalescing for boolean to properly handle false value
-    const configIsProduction = this.configService.get<boolean>('midtrans.isProduction');
-    const isProduction = configIsProduction !== undefined ? configIsProduction : (process.env.MIDTRANS_IS_PRODUCTION === 'true');
+    const configIsProduction = this.configService.get<boolean>(
+      'midtrans.isProduction',
+    );
+    const isProduction =
+      configIsProduction !== undefined
+        ? configIsProduction
+        : process.env.MIDTRANS_IS_PRODUCTION === 'true';
 
     // Debug: Check both sources
-    this.logger.log(`ConfigService serverKey: ${this.configService.get<string>('midtrans.serverKey')?.substring(0, 15) || 'UNDEFINED'}`);
-    this.logger.log(`ConfigService isProduction: ${this.configService.get<boolean>('midtrans.isProduction')}`);
-    this.logger.log(`process.env MIDTRANS_IS_PRODUCTION: "${process.env.MIDTRANS_IS_PRODUCTION}"`);
+    this.logger.log(
+      `ConfigService serverKey: ${this.configService.get<string>('midtrans.serverKey')?.substring(0, 15) || 'UNDEFINED'}`,
+    );
+    this.logger.log(
+      `ConfigService isProduction: ${this.configService.get<boolean>('midtrans.isProduction')}`,
+    );
+    this.logger.log(
+      `process.env MIDTRANS_IS_PRODUCTION: "${process.env.MIDTRANS_IS_PRODUCTION}"`,
+    );
     this.logger.log(`Final isProduction: ${isProduction}`);
 
     if (!serverKey || !clientKey) {
-      this.logger.warn('Midtrans keys not configured. Payment features will not work.');
+      this.logger.warn(
+        'Midtrans keys not configured. Payment features will not work.',
+      );
     } else {
       // Log partial key for debugging (first 20 chars only)
       const maskedServerKey = serverKey.substring(0, 20) + '...';
       const maskedClientKey = clientKey.substring(0, 20) + '...';
-      this.logger.log(`Midtrans initialized (${isProduction ? 'PRODUCTION' : 'SANDBOX'} mode)`);
-      this.logger.log(`Server Key: ${maskedServerKey} (length: ${serverKey.length})`);
-      this.logger.log(`Client Key: ${maskedClientKey} (length: ${clientKey.length})`);
+      this.logger.log(
+        `Midtrans initialized (${isProduction ? 'PRODUCTION' : 'SANDBOX'} mode)`,
+      );
+      this.logger.log(
+        `Server Key: ${maskedServerKey} (length: ${serverKey.length})`,
+      );
+      this.logger.log(
+        `Client Key: ${maskedClientKey} (length: ${clientKey.length})`,
+      );
     }
 
     // Log the exact value being passed to Midtrans
     const finalIsProduction = Boolean(isProduction);
-    this.logger.log(`[CONSTRUCTOR] Passing to Midtrans.Snap: isProduction=${finalIsProduction} (type: ${typeof finalIsProduction})`);
+    this.logger.log(
+      `[CONSTRUCTOR] Passing to Midtrans.Snap: isProduction=${finalIsProduction} (type: ${typeof finalIsProduction})`,
+    );
 
     this.snap = new Midtrans.Snap({
       isProduction: finalIsProduction,
@@ -62,7 +97,9 @@ export class PaymentsService {
     });
 
     // Verify what Midtrans actually stored
-    this.logger.log(`[CONSTRUCTOR] Midtrans.Snap stored: isProduction=${(this.snap as any).apiConfig?.isProduction}`);
+    this.logger.log(
+      `[CONSTRUCTOR] Midtrans.Snap stored: isProduction=${(this.snap as any).apiConfig?.isProduction}`,
+    );
   }
 
   async createPayment(
@@ -73,14 +110,18 @@ export class PaymentsService {
     // Debug: Log which key is being used
     const configKey = this.configService.get<string>('midtrans.serverKey');
     const envKey = process.env.MIDTRANS_SERVER_KEY;
-    this.logger.log(`[DEBUG] ConfigService key: ${configKey?.substring(0, 25) || 'NULL'}`);
-    this.logger.log(`[DEBUG] process.env key: ${envKey?.substring(0, 25) || 'NULL'}`);
+    this.logger.log(
+      `[DEBUG] ConfigService key: ${configKey?.substring(0, 25) || 'NULL'}`,
+    );
+    this.logger.log(
+      `[DEBUG] process.env key: ${envKey?.substring(0, 25) || 'NULL'}`,
+    );
 
     // Check Midtrans configuration
     const serverKey = configKey || envKey;
     if (!serverKey) {
       throw new BadRequestException(
-        'Payment gateway not configured. Please contact administrator.'
+        'Payment gateway not configured. Please contact administrator.',
       );
     }
 
@@ -90,7 +131,9 @@ export class PaymentsService {
       throw new BadRequestException('This package is not available');
     }
     if (!pkg.isPurchasable) {
-      throw new BadRequestException('This package is not available for purchase');
+      throw new BadRequestException(
+        'This package is not available for purchase',
+      );
     }
 
     // Generate unique order ID
@@ -128,10 +171,13 @@ export class PaymentsService {
 
     try {
       // Debug: Log snap config
-      this.logger.log(`[DEBUG] Snap apiConfig: ${JSON.stringify({
-        serverKey: (this.snap as any).apiConfig?.serverKey?.substring(0, 25) || 'NULL',
-        isProduction: (this.snap as any).apiConfig?.isProduction,
-      })}`);
+      this.logger.log(
+        `[DEBUG] Snap apiConfig: ${JSON.stringify({
+          serverKey:
+            (this.snap as any).apiConfig?.serverKey?.substring(0, 25) || 'NULL',
+          isProduction: (this.snap as any).apiConfig?.isProduction,
+        })}`,
+      );
 
       const snapResponse = await this.snap.createTransaction({
         transaction_details: transactionDetails,
@@ -151,26 +197,41 @@ export class PaymentsService {
     } catch (error: any) {
       // Log detailed error from Midtrans
       const errorMessage = error?.message || String(error);
-      const errorResponse = error?.ApiResponse || error?.httpStatusCode || 'No response';
-      this.logger.error(`Failed to create Midtrans transaction: ${errorMessage}`, {
-        errorResponse,
-        orderId,
-        packageId: pkg.id,
-        amount: pkg.price,
-      });
+      const errorResponse =
+        error?.ApiResponse || error?.httpStatusCode || 'No response';
+      this.logger.error(
+        `Failed to create Midtrans transaction: ${errorMessage}`,
+        {
+          errorResponse,
+          orderId,
+          packageId: pkg.id,
+          amount: pkg.price,
+        },
+      );
 
       payment.status = PaymentStatus.FAILED;
       await this.paymentRepository.save(payment);
 
       // Return more helpful error message
       throw new BadRequestException(
-        `Failed to create payment: ${errorMessage}. Please check Midtrans configuration.`
+        `Failed to create payment: ${errorMessage}. Please check Midtrans configuration.`,
       );
     }
   }
 
-  async handleNotification(notification: MidtransNotificationDto): Promise<void> {
-    const { order_id, transaction_status, fraud_status, transaction_id, payment_type, status_code, gross_amount, signature_key } = notification;
+  async handleNotification(
+    notification: MidtransNotificationDto,
+  ): Promise<void> {
+    const {
+      order_id,
+      transaction_status,
+      fraud_status,
+      transaction_id,
+      payment_type,
+      status_code,
+      gross_amount,
+      signature_key,
+    } = notification;
 
     // Verify signature hash from Midtrans
     const serverKey = this.configService.get<string>('midtrans.serverKey');
@@ -184,7 +245,9 @@ export class PaymentsService {
       throw new UnauthorizedException('Invalid signature');
     }
 
-    this.logger.log(`Received notification for order: ${order_id}, status: ${transaction_status}`);
+    this.logger.log(
+      `Received notification for order: ${order_id}, status: ${transaction_status}`,
+    );
 
     const payment = await this.paymentRepository.findOne({
       where: { orderId: order_id },
@@ -197,7 +260,9 @@ export class PaymentsService {
     }
 
     // Get user for notification
-    const user = await this.userRepository.findOne({ where: { id: payment.userId } });
+    const user = await this.userRepository.findOne({
+      where: { id: payment.userId },
+    });
 
     // Update payment info
     if (transaction_id) {
@@ -206,10 +271,16 @@ export class PaymentsService {
     if (payment_type) {
       payment.paymentType = payment_type;
     }
-    payment.midtransResponse = notification as unknown as Record<string, unknown>;
+    payment.midtransResponse = notification as unknown as Record<
+      string,
+      unknown
+    >;
 
     // Determine payment status
-    if (transaction_status === 'capture' || transaction_status === 'settlement') {
+    if (
+      transaction_status === 'capture' ||
+      transaction_status === 'settlement'
+    ) {
       if (fraud_status === 'accept' || !fraud_status) {
         payment.status = PaymentStatus.SUCCESS;
         payment.paidAt = new Date();
@@ -241,18 +312,28 @@ export class PaymentsService {
     // Send notifications based on payment status
     if (user && payment.package) {
       if (payment.status === PaymentStatus.SUCCESS) {
-        this.notificationsService.notifyPaymentSuccess(
-          payment.userId,
-          user.email,
-          payment.package.name,
-          Number(payment.amount),
-        ).catch(err => this.logger.error('Failed to send payment success notification:', err));
+        this.notificationsService
+          .notifyPaymentSuccess(
+            payment.userId,
+            user.email,
+            payment.package.name,
+            Number(payment.amount),
+          )
+          .catch((err) =>
+            this.logger.error(
+              'Failed to send payment success notification:',
+              err,
+            ),
+          );
       } else if (payment.status === PaymentStatus.FAILED) {
-        this.notificationsService.notifyPaymentFailed(
-          payment.userId,
-          user.email,
-          payment.package.name,
-        ).catch(err => this.logger.error('Failed to send payment failed notification:', err));
+        this.notificationsService
+          .notifyPaymentFailed(payment.userId, user.email, payment.package.name)
+          .catch((err) =>
+            this.logger.error(
+              'Failed to send payment failed notification:',
+              err,
+            ),
+          );
       }
     }
   }
@@ -276,8 +357,17 @@ export class PaymentsService {
     return payment;
   }
 
-  async findAll(query?: PaymentQueryDto): Promise<{ data: Payment[]; total: number }> {
-    const { page = 1, limit = 10, search, status, sortBy = 'createdAt', order = 'DESC' } = query || {};
+  async findAll(
+    query?: PaymentQueryDto,
+  ): Promise<{ data: Payment[]; total: number }> {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = query || {};
 
     const qb = this.paymentRepository.createQueryBuilder('payment');
     qb.leftJoinAndSelect('payment.package', 'package');

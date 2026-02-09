@@ -39,7 +39,10 @@ export class PaymentQueryDto {
   @IsOptional()
   status?: PaymentStatus;
 
-  @ApiPropertyOptional({ enum: PaymentSortBy, default: PaymentSortBy.CREATED_AT })
+  @ApiPropertyOptional({
+    enum: PaymentSortBy,
+    default: PaymentSortBy.CREATED_AT,
+  })
   @IsEnum(PaymentSortBy)
   @IsOptional()
   sortBy?: PaymentSortBy = PaymentSortBy.CREATED_AT;

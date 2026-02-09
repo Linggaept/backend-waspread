@@ -9,7 +9,12 @@ import {
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { PackagesService } from './packages.service';
 import { CreatePackageDto, UpdatePackageDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -94,7 +99,10 @@ export class PackagesController {
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Toggle package purchasable status (Admin)' })
-  @ApiResponse({ status: 200, description: 'Package purchasable status toggled' })
+  @ApiResponse({
+    status: 200,
+    description: 'Package purchasable status toggled',
+  })
   togglePurchasable(@Param('id', ParseUUIDPipe) id: string) {
     return this.packagesService.togglePurchasable(id);
   }

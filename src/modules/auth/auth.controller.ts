@@ -1,8 +1,26 @@
-import { Controller, Post, Body, Get, UseGuards, Headers } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  UseGuards,
+  Headers,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, ForgotPasswordDto, VerifyResetCodeDto, ResetPasswordDto } from './dto';
+import {
+  RegisterDto,
+  LoginDto,
+  ForgotPasswordDto,
+  VerifyResetCodeDto,
+  ResetPasswordDto,
+} from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { TokenBlacklistService } from './services/token-blacklist.service';
@@ -19,7 +37,10 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Register new user' })
   @ApiResponse({ status: 201, description: 'User registered successfully' })
-  @ApiResponse({ status: 400, description: 'Validation error or email already exists' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or email already exists',
+  })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
@@ -27,7 +48,10 @@ export class AuthController {
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Login user' })
-  @ApiResponse({ status: 200, description: 'Login successful, returns JWT token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful, returns JWT token',
+  })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
@@ -44,7 +68,10 @@ export class AuthController {
   @Post('verify-reset-code')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Verify reset code and get reset token' })
-  @ApiResponse({ status: 200, description: 'Code verified, returns reset token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Code verified, returns reset token',
+  })
   @ApiResponse({ status: 400, description: 'Invalid or expired code' })
   async verifyResetCode(@Body() verifyDto: VerifyResetCodeDto) {
     return this.authService.verifyResetCode(verifyDto);

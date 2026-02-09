@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -34,16 +38,23 @@ export class UsersService {
     return this.userRepository.save(user);
   }
 
-  async findAll(query?: UserQueryDto): Promise<{ data: User[]; total: number }> {
-    const { page = 1, limit = 10, search, sortBy = 'createdAt', order = 'DESC' } = query || {};
+  async findAll(
+    query?: UserQueryDto,
+  ): Promise<{ data: User[]; total: number }> {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = query || {};
 
     const qb = this.userRepository.createQueryBuilder('user');
 
     if (search) {
-      qb.where(
-        '(user.name ILIKE :search OR user.email ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      qb.where('(user.name ILIKE :search OR user.email ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     qb.orderBy(`user.${sortBy}`, order as 'ASC' | 'DESC');

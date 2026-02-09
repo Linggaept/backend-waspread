@@ -21,7 +21,9 @@ import { join } from 'path';
           },
         },
         defaults: {
-          from: configService.get<string>('mail.from') || '"Waspread" <noreply@waspread.com>',
+          from:
+            configService.get<string>('mail.from') ||
+            '"Waspread" <noreply@waspread.com>',
         },
         template: {
           dir: join(__dirname, 'templates'),

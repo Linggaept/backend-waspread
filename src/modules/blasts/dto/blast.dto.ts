@@ -25,7 +25,8 @@ export class CreateBlastDto {
 
   @ApiPropertyOptional({
     example: 'template-uuid',
-    description: 'Template ID to use for message content. If provided, message and imageUrl will be taken from template.',
+    description:
+      'Template ID to use for message content. If provided, message and imageUrl will be taken from template.',
   })
   @IsOptional()
   @IsString()
@@ -54,7 +55,8 @@ export class CreateBlastDto {
   @ApiPropertyOptional({
     example: 'manual',
     enum: ['manual', 'from_contacts', 'file'],
-    description: 'How to select recipients: manual (input numbers), from_contacts (select from saved contacts), file (upload CSV/Excel)',
+    description:
+      'How to select recipients: manual (input numbers), from_contacts (select from saved contacts), file (upload CSV/Excel)',
   })
   @IsOptional()
   @IsString()
@@ -62,7 +64,8 @@ export class CreateBlastDto {
 
   @ApiPropertyOptional({
     example: ['628123456789', '628987654331'],
-    description: 'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
+    description:
+      'Target phone numbers (when recipientSource = manual). Minimum 2 numbers.',
   })
   @IsOptional()
   @IsArray()
@@ -77,7 +80,10 @@ export class CreateBlastDto {
         return Array.isArray(parsed) ? parsed : undefined;
       } catch {
         if (value.includes(',')) {
-          return value.split(',').map((s: string) => s.trim()).filter(Boolean);
+          return value
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean);
         }
         return value.trim() ? [value.trim()] : undefined;
       }
@@ -88,7 +94,8 @@ export class CreateBlastDto {
 
   @ApiPropertyOptional({
     example: ['contact-uuid-1', 'contact-uuid-2'],
-    description: 'Selected contact IDs from checkbox (when recipientSource = from_contacts)',
+    description:
+      'Selected contact IDs from checkbox (when recipientSource = from_contacts)',
   })
   @IsOptional()
   @IsArray()
@@ -100,7 +107,12 @@ export class CreateBlastDto {
         const parsed = JSON.parse(value);
         return Array.isArray(parsed) ? parsed : undefined;
       } catch {
-        return value.includes(',') ? value.split(',').map((s: string) => s.trim()).filter(Boolean) : [value.trim()];
+        return value.includes(',')
+          ? value
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : [value.trim()];
       }
     }
     return value;
@@ -154,9 +166,14 @@ export class BlastResponseDto {
   pendingCount: number;
   @ApiProperty()
   delayMs: number;
-  @ApiPropertyOptional({ description: 'Media file URL (image, video, audio, document)' })
+  @ApiPropertyOptional({
+    description: 'Media file URL (image, video, audio, document)',
+  })
   mediaUrl?: string;
-  @ApiPropertyOptional({ enum: ['image', 'video', 'audio', 'document'], description: 'Type of attached media' })
+  @ApiPropertyOptional({
+    enum: ['image', 'video', 'audio', 'document'],
+    description: 'Type of attached media',
+  })
   mediaType?: string;
   @ApiPropertyOptional()
   startedAt?: Date;
@@ -192,24 +209,31 @@ export class BlastQueryDto {
   @Transform(({ value }) => parseInt(value, 10) || 1)
   page?: number;
 
-  @ApiPropertyOptional({ example: 10, description: 'Items per page', default: 10 })
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Items per page',
+    default: 10,
+  })
   @IsOptional()
   @IsNumber()
   @Min(1)
   @Transform(({ value }) => parseInt(value, 10) || 10)
   limit?: number;
 
-  @ApiPropertyOptional({ example: 'promo', description: 'Search by campaign name' })
+  @ApiPropertyOptional({
+    example: 'promo',
+    description: 'Search by campaign name',
+  })
   @IsOptional()
   @IsString()
   search?: string;
 
   @ApiPropertyOptional({
     example: 'completed',
-    description: 'Filter by status (pending, processing, completed, cancelled, failed)'
+    description:
+      'Filter by status (pending, processing, completed, cancelled, failed)',
   })
   @IsOptional()
   @IsString()
   status?: string;
 }
-

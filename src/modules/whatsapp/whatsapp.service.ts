@@ -1,41 +1,78 @@
-import { Injectable, Logger, OnModuleDestroy, Inject, forwardRef, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
-import { WhatsAppSession, SessionStatus } from '../../database/entities/whatsapp-session.entity';
+import axios from 'axios';
+import {
+  WhatsAppSession,
+  SessionStatus,
+} from '../../database/entities/whatsapp-session.entity';
 import { WhatsAppGateway } from './gateways/whatsapp.gateway';
 import { StorageService } from '../uploads/storage.service';
+import { BaileysAdapter } from './adapters/baileys.adapter';
+import type {
+  IWhatsAppClientAdapter,
+  MediaData,
+} from './adapters/whatsapp-client.interface';
 
 // Interface for reply detection handler
 export interface ReplyHandler {
-  handleIncomingMessage(userId: string, phoneNumber: string, message: any): Promise<any>;
+  handleIncomingMessage(
+    userId: string,
+    phoneNumber: string,
+    message: any,
+  ): Promise<any>;
+}
+
+// Interface for chat message storage handler
+export interface MessageStoreHandler {
+  handleMessageUpsert(userId: string, message: any): Promise<void>;
+}
+
+// Interface for message status update handler
+export interface MessageStatusHandler {
+  handleMessageStatusUpdate(
+    userId: string,
+    messageId: string,
+    phoneNumber: string,
+    status: 'sent' | 'delivered' | 'read' | 'failed',
+  ): Promise<void>;
 }
 
 interface ClientInstance {
-  client: Client;
+  adapter: IWhatsAppClientAdapter;
   userId: string;
   isReady: boolean;
-  lastActivity: number; // Timestamp of last activity
-  isBlasting: boolean;  // Whether actively sending messages
+  lastActivity: number;
+  isBlasting: boolean;
 }
 
 @Injectable()
-export class WhatsAppService implements OnModuleDestroy {
+export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private clients: Map<string, ClientInstance> = new Map();
-  private mediaCache = new Map<string, { media: MessageMedia; expiresAt: number }>();
-  
-  // Configuration constants
+  private mediaCache = new Map<
+    string,
+    { media: MediaData; expiresAt: number }
+  >();
+
+  private readonly AUTH_DIR = '.baileys_auth';
   private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour media cache TTL
-  private readonly MAX_CONCURRENT_SESSIONS = parseInt(process.env.MAX_WA_SESSIONS || '20', 10);
-  private readonly IDLE_TIMEOUT_MS = parseInt(process.env.WA_IDLE_TIMEOUT_MINUTES || '15', 10) * 60 * 1000;
+  private readonly MAX_CONCURRENT_SESSIONS = parseInt(
+    process.env.MAX_WA_SESSIONS || '20',
+    10,
+  );
+  private readonly IDLE_TIMEOUT_MS =
+    parseInt(process.env.WA_IDLE_TIMEOUT_MINUTES || '15', 10) * 60 * 1000;
   private readonly IDLE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
 
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private replyHandler: ReplyHandler | null = null;
+  private messageStoreHandler: MessageStoreHandler | null = null;
+  private messageStatusHandler: MessageStatusHandler | null = null;
+  private manualDisconnectUsers: Set<string> = new Set(); // Track users who manually disconnect
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -43,60 +80,96 @@ export class WhatsAppService implements OnModuleDestroy {
     private readonly whatsappGateway: WhatsAppGateway,
     private readonly storageService: StorageService,
   ) {
-    // Start idle session cleanup timer
     this.startIdleSessionCleanup();
   }
 
+  /**
+   * Restore previously connected sessions on server startup
+   */
+  async onModuleInit() {
+    this.logger.log('Restoring WhatsApp sessions...');
+
+    try {
+      // Find sessions that were previously connected
+      const connectedSessions = await this.sessionRepository.find({
+        where: { status: SessionStatus.CONNECTED },
+      });
+
+      if (connectedSessions.length === 0) {
+        this.logger.log('No previous sessions to restore');
+        return;
+      }
+
+      this.logger.log(
+        `Found ${connectedSessions.length} session(s) to restore`,
+      );
+
+      // Restore each session (with delay to avoid overwhelming)
+      for (const session of connectedSessions) {
+        try {
+          this.logger.log(`Restoring session for user ${session.userId}...`);
+          await this.initializeSession(session.userId);
+        } catch (error) {
+          this.logger.error(
+            `Failed to restore session for user ${session.userId}`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log('Session restoration complete');
+    } catch (error) {
+      this.logger.error('Error during session restoration', error);
+    }
+  }
+
   async onModuleDestroy() {
-    // Stop idle check timer
     if (this.idleCheckTimer) {
       clearInterval(this.idleCheckTimer);
     }
-    
-    // Cleanup all clients on shutdown
+
     for (const [userId, instance] of this.clients) {
       try {
-        await instance.client.destroy();
-        this.cleanupSessionLock(userId);
+        await instance.adapter.destroy();
         this.logger.log(`Client destroyed for user ${userId}`);
       } catch (error) {
         this.logger.error(`Error destroying client for user ${userId}`, error);
-        // Still try to cleanup locks even if destroy fails
-        this.cleanupSessionLock(userId);
       }
     }
   }
 
-  /**
-   * Set the reply handler for processing incoming messages
-   */
   setReplyHandler(handler: ReplyHandler) {
     this.replyHandler = handler;
     this.logger.log('Reply handler registered');
   }
 
-  /**
-   * Start periodic cleanup of idle sessions
-   */
+  setMessageStoreHandler(handler: MessageStoreHandler) {
+    this.messageStoreHandler = handler;
+    this.logger.log('Message store handler registered');
+  }
+
+  setMessageStatusHandler(handler: MessageStatusHandler) {
+    this.messageStatusHandler = handler;
+    this.logger.log('Message status handler registered');
+  }
+
   private startIdleSessionCleanup() {
     this.idleCheckTimer = setInterval(async () => {
       await this.cleanupIdleSessions();
     }, this.IDLE_CHECK_INTERVAL_MS);
-    
-    this.logger.log(`Idle session cleanup started (timeout: ${this.IDLE_TIMEOUT_MS / 60000} min, max sessions: ${this.MAX_CONCURRENT_SESSIONS})`);
+
+    this.logger.log(
+      `Idle session cleanup started (timeout: ${this.IDLE_TIMEOUT_MS / 60000} min, max sessions: ${this.MAX_CONCURRENT_SESSIONS})`,
+    );
   }
 
-  /**
-   * Disconnect sessions that have been idle too long
-   */
   private async cleanupIdleSessions() {
     const now = Date.now();
     const idleSessions: string[] = [];
 
     for (const [userId, instance] of this.clients) {
-      // Don't disconnect if actively blasting
       if (instance.isBlasting) continue;
-      
+
       const idleTime = now - instance.lastActivity;
       if (idleTime > this.IDLE_TIMEOUT_MS) {
         idleSessions.push(userId);
@@ -106,22 +179,21 @@ export class WhatsAppService implements OnModuleDestroy {
     for (const userId of idleSessions) {
       this.logger.log(`Auto-disconnecting idle session for user ${userId}`);
       await this.forceDisconnect(userId);
-      
-      // Notify user via WebSocket
+
       this.whatsappGateway.sendStatusUpdate(userId, {
         status: SessionStatus.DISCONNECTED,
-        reason: 'Session disconnected due to inactivity. Please reconnect when needed.',
+        reason:
+          'Session disconnected due to inactivity. Please reconnect when needed.',
       });
     }
 
     if (idleSessions.length > 0) {
-      this.logger.log(`Cleaned up ${idleSessions.length} idle session(s). Active: ${this.clients.size}`);
+      this.logger.log(
+        `Cleaned up ${idleSessions.length} idle session(s). Active: ${this.clients.size}`,
+      );
     }
   }
 
-  /**
-   * Get current session statistics
-   */
   getSessionStats(): { active: number; max: number; available: number } {
     return {
       active: this.clients.size,
@@ -130,9 +202,6 @@ export class WhatsAppService implements OnModuleDestroy {
     };
   }
 
-  /**
-   * Update last activity timestamp for a session
-   */
   private updateActivity(userId: string) {
     const instance = this.clients.get(userId);
     if (instance) {
@@ -140,9 +209,6 @@ export class WhatsAppService implements OnModuleDestroy {
     }
   }
 
-  /**
-   * Mark session as blasting (protected from auto-disconnect)
-   */
   setBlastingStatus(userId: string, isBlasting: boolean) {
     const instance = this.clients.get(userId);
     if (instance) {
@@ -151,43 +217,9 @@ export class WhatsAppService implements OnModuleDestroy {
     }
   }
 
-  /**
-   * Check if a client instance is still valid (browser not crashed)
-   */
-  private isClientValid(instance: ClientInstance): boolean {
-    try {
-      // If client is marked as not ready, it's not valid for sending
-      if (!instance.isReady) {
-        return false;
-      }
-
-      // Check if the client's underlying browser/page is still accessible
-      // Note: These are internal whatsapp-web.js properties
-      const pupPage = (instance.client as any).pupPage;
-      const pupBrowser = (instance.client as any).pupBrowser;
-      
-      // Only check if these properties exist - if they don't exist yet, assume valid
-      // If browser exists but is disconnected, client is invalid
-      if (pupBrowser && typeof pupBrowser.isConnected === 'function' && !pupBrowser.isConnected()) {
-        this.logger.debug('Browser is disconnected');
-        return false;
-      }
-      
-      // If page exists but is closed, client is invalid
-      if (pupPage && typeof pupPage.isClosed === 'function' && pupPage.isClosed()) {
-        this.logger.debug('Page is closed');
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      // If any check throws, log it but assume valid to avoid false negatives
-      this.logger.debug(`isClientValid check error: ${error}`);
-      return true;
-    }
-  }
-
-  async initializeSession(userId: string, retryCount = 0): Promise<{ status: string; qrCode?: string; message?: string }> {
+  async initializeSession(
+    userId: string,
+  ): Promise<{ status: string; qrCode?: string; message?: string }> {
     // Check if client already exists
     if (this.clients.has(userId)) {
       const instance = this.clients.get(userId)!;
@@ -196,10 +228,12 @@ export class WhatsAppService implements OnModuleDestroy {
         return { status: 'connected' };
       }
 
-      // Client exists but not ready - destroy it and recreate
-      this.logger.warn(`Client exists but not ready for user ${userId}, destroying and recreating...`);
+      // Client exists but not ready - destroy and recreate
+      this.logger.warn(
+        `Client exists but not ready for user ${userId}, destroying and recreating...`,
+      );
       try {
-        await instance.client.destroy();
+        await instance.adapter.destroy();
       } catch (e) {
         this.logger.warn(`Error destroying stale client: ${e}`);
       }
@@ -208,57 +242,23 @@ export class WhatsAppService implements OnModuleDestroy {
 
     // Check session limit
     if (this.clients.size >= this.MAX_CONCURRENT_SESSIONS) {
-      this.logger.warn(`Session limit reached (${this.clients.size}/${this.MAX_CONCURRENT_SESSIONS}). User ${userId} cannot connect.`);
+      this.logger.warn(
+        `Session limit reached (${this.clients.size}/${this.MAX_CONCURRENT_SESSIONS}). User ${userId} cannot connect.`,
+      );
       return {
         status: 'limit_reached',
         message: `Server is at capacity (${this.MAX_CONCURRENT_SESSIONS} active sessions). Please try again later.`,
       };
     }
 
-    // Kill any orphan chromium processes for this session
-    await this.killOrphanProcesses(userId);
-
-    // Create new client
     const session = await this.getOrCreateSession(userId);
     await this.updateSessionStatus(userId, SessionStatus.CONNECTING);
 
-    // Proactively cleanup any stale lock files before starting
-    this.cleanupSessionLock(userId);
-
-    // Wait a bit for processes to fully terminate
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const client = new Client({
-      authStrategy: new LocalAuth({
-        clientId: userId,
-        dataPath: '.wwebjs_auth',
-      }),
-      puppeteer: {
-        headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          // Note: Removed --no-zygote and --single-process as they cause frame detachment issues
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          // Memory optimization flags (safe ones only)
-          '--disable-extensions',
-          '--disable-background-networking',
-          '--disable-default-apps',
-          '--disable-sync',
-          '--disable-translate',
-          '--metrics-recording-only',
-          '--mute-audio',
-        ],
-      },
-    });
+    const adapter = new BaileysAdapter();
+    const authPath = path.join(process.cwd(), this.AUTH_DIR, userId);
 
     const instance: ClientInstance = {
-      client,
+      adapter,
       userId,
       isReady: false,
       lastActivity: Date.now(),
@@ -266,257 +266,431 @@ export class WhatsAppService implements OnModuleDestroy {
     };
 
     this.clients.set(userId, instance);
-    this.setupClientEvents(client, userId);
 
     try {
-      await client.initialize();
+      await adapter.initialize({
+        userId,
+        authPath,
+        onQr: async (qr: string) => {
+          this.logger.log(`QR Code received for user ${userId}`);
+
+          const qrDataUrl = await qrcode.toDataURL(qr);
+
+          await this.updateSessionStatus(userId, SessionStatus.SCANNING);
+          await this.sessionRepository.update(
+            { userId },
+            { lastQrCode: qrDataUrl },
+          );
+
+          this.whatsappGateway.sendQrCode(userId, qrDataUrl);
+        },
+        onReady: async (info) => {
+          this.logger.log(`Client ready for user ${userId}`);
+
+          const inst = this.clients.get(userId);
+          if (inst) {
+            inst.isReady = true;
+          }
+
+          const updateData: Partial<WhatsAppSession> = {
+            status: SessionStatus.CONNECTED,
+            lastConnectedAt: new Date(),
+          };
+
+          if (info.phoneNumber) {
+            updateData.phoneNumber = info.phoneNumber;
+          }
+          if (info.pushName) {
+            updateData.pushName = info.pushName;
+          }
+
+          await this.sessionRepository.update({ userId }, updateData);
+
+          // Clear QR code and disconnect reason
+          await this.sessionRepository
+            .createQueryBuilder()
+            .update(WhatsAppSession)
+            .set({ lastQrCode: () => 'NULL', disconnectReason: () => 'NULL' })
+            .where('userId = :userId', { userId })
+            .execute();
+
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.CONNECTED,
+            phoneNumber: info.phoneNumber,
+            pushName: info.pushName,
+          });
+        },
+        onDisconnected: async (reason: string) => {
+          this.logger.log(`Client disconnected for user ${userId}: ${reason}`);
+
+          const inst = this.clients.get(userId);
+          if (inst) {
+            inst.isReady = false;
+          }
+
+          this.clients.delete(userId);
+
+          await this.sessionRepository.update(
+            { userId },
+            {
+              status: SessionStatus.DISCONNECTED,
+              lastDisconnectedAt: new Date(),
+              disconnectReason: reason,
+            },
+          );
+
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.DISCONNECTED,
+            reason,
+          });
+
+          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
+          if (
+            !this.manualDisconnectUsers.has(userId) &&
+            (
+              reason === 'Logged out' ||
+              reason === 'Session logged out' ||
+              reason === 'Connection replaced by another session'
+            )
+          ) {
+            this.logger.log(
+              `Session expired/logged out for user ${userId}. Auto-reconnecting in 3s...`,
+            );
+            setTimeout(() => {
+              this.initializeSession(userId).catch((e) =>
+                this.logger.error(
+                  `Auto-reconnect failed for user ${userId}`,
+                  e,
+                ),
+              );
+            }, 3000);
+          } else if (this.manualDisconnectUsers.has(userId)) {
+            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            this.manualDisconnectUsers.delete(userId);
+          }
+        },
+        onAuthFailure: async (error: string) => {
+          this.logger.error(`Auth failure for user ${userId}: ${error}`);
+          await this.updateSessionStatus(userId, SessionStatus.FAILED, error);
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.FAILED,
+            error,
+          });
+        },
+        onMessage: async (message) => {
+          try {
+            if (message.fromMe) return;
+
+            const phoneNumber = message.from.replace('@c.us', '');
+            this.logger.log(
+              `[Reply] Incoming message from ${phoneNumber}: "${message.body?.substring(0, 50) || '[no text]'}"`,
+            );
+
+            if (this.replyHandler) {
+              this.logger.debug(`[Reply] Passing to replyHandler...`);
+              await this.replyHandler.handleIncomingMessage(
+                userId,
+                phoneNumber,
+                message,
+              );
+            } else {
+              this.logger.warn(`[Reply] No replyHandler registered!`);
+            }
+          } catch (error) {
+            this.logger.error(`Error processing incoming message: ${error}`);
+          }
+        },
+        onMessageUpsert: async (message) => {
+          if (this.messageStoreHandler) {
+            try {
+              await this.messageStoreHandler.handleMessageUpsert(
+                userId,
+                message,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message store handler: ${error}`);
+            }
+          }
+        },
+        onMessageStatusUpdate: async (update) => {
+          if (this.messageStatusHandler) {
+            try {
+              await this.messageStatusHandler.handleMessageStatusUpdate(
+                userId,
+                update.messageId,
+                update.remoteJid,
+                update.status,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message status handler: ${error}`);
+            }
+          }
+        },
+      });
+
       return {
         status: 'connecting',
       };
     } catch (error) {
-      this.logger.error(`Failed to initialize client for user ${userId}`, error);
-      
-      // Try to destroy client to free resources
-      try { await client.destroy(); } catch (e) {} 
+      this.logger.error(
+        `Failed to initialize client for user ${userId}`,
+        error,
+      );
+
+      try {
+        await adapter.destroy();
+      } catch (e) {}
       this.clients.delete(userId);
 
-      const errorMsg = String(error);
-      if (errorMsg.includes('locked the profile') || errorMsg.includes('Code: 21') || errorMsg.includes('SingletonLock')) {
-        if (retryCount < 2) {
-          this.logger.warn(`Profile locked for user ${userId}, cleaning up and retrying (Attempt ${retryCount + 1}/2)...`);
-          this.cleanupSessionLock(userId);
-          // Wait before retrying (longer wait on second attempt)
-          await new Promise(resolve => setTimeout(resolve, 2000 + retryCount * 1000));
-          return this.initializeSession(userId, retryCount + 1);
-        }
-
-        await this.updateSessionStatus(userId, SessionStatus.FAILED, 'Session locked. Please try again in a few moments.');
-      } else {
-        await this.updateSessionStatus(userId, SessionStatus.FAILED, String(error));
-      }
-      
+      await this.updateSessionStatus(
+        userId,
+        SessionStatus.FAILED,
+        String(error),
+      );
       throw error;
     }
   }
 
-  private async killOrphanProcesses(userId: string): Promise<void> {
-    try {
-      const { exec } = require('child_process');
-      const sessionPath = path.join(process.cwd(), '.wwebjs_auth', `session-${userId}`);
-
-      // Find and kill chromium processes using this session directory
-      const cmd = process.platform === 'darwin' || process.platform === 'linux'
-        ? `pkill -f "user-data-dir=${sessionPath}" 2>/dev/null || true`
-        : `taskkill /F /FI "COMMANDLINE eq *${sessionPath}*" 2>nul || echo ok`;
-
-      await new Promise<void>((resolve) => {
-        exec(cmd, (error: Error | null) => {
-          if (error) {
-            this.logger.debug(`No orphan processes found or error killing: ${error.message}`);
-          }
-          resolve();
-        });
-      });
-    } catch (e) {
-      this.logger.debug(`Error killing orphan processes: ${e}`);
-    }
-  }
-
-  private cleanupSessionLock(userId: string) {
-    try {
-      const basePath = process.cwd();
-      const sessionDir = path.join(basePath, '.wwebjs_auth', `session-${userId}`);
-
-      // Lock files can be in multiple locations
-      const searchPaths = [
-        sessionDir,
-        path.join(sessionDir, 'Default'),
-        path.join(basePath, '.wwebjs_cache'),
-        path.join(basePath, '.wwebjs_cache', 'puppeteer'),
-      ];
-
-      // Common lock files in Chromium
-      const locks = ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'lockfile'];
-
-      searchPaths.forEach(searchPath => {
-        if (!fs.existsSync(searchPath)) return;
-
-        // Also search subdirectories recursively for lock files
-        this.removeLockFilesRecursive(searchPath, locks);
-      });
-    } catch (e) {
-      this.logger.error(`Failed to cleanup session lock: ${e}`);
-    }
-  }
-
-  private removeLockFilesRecursive(dir: string, locks: string[]) {
-    try {
-      if (!fs.existsSync(dir)) return;
-
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          // Recurse into subdirectories
-          this.removeLockFilesRecursive(fullPath, locks);
-        } else if (locks.includes(entry.name)) {
-          // Remove lock file
-          try {
-            fs.rmSync(fullPath, { force: true });
-            this.logger.log(`Removed lock file: ${fullPath}`);
-          } catch (e) {
-            this.logger.warn(`Could not remove ${fullPath}: ${e}`);
-          }
-        }
+  async initializeSessionWithPairing(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{ status: string; code?: string; message?: string }> {
+    // Check if client already exists and is connected
+    if (this.clients.has(userId)) {
+      const instance = this.clients.get(userId)!;
+      if (instance.isReady) {
+        instance.lastActivity = Date.now();
+        return { status: 'connected' };
       }
-    } catch (e) {
-      this.logger.debug(`Error scanning directory ${dir}: ${e}`);
-    }
-  }
 
-  private setupClientEvents(client: Client, userId: string) {
-    client.on('qr', async (qr: string) => {
-      this.logger.log(`QR Code received for user ${userId}`);
-      
-      // Generate QR code as base64
-      const qrDataUrl = await qrcode.toDataURL(qr);
-      
-      // Update session
-      await this.updateSessionStatus(userId, SessionStatus.SCANNING);
-      await this.sessionRepository.update(
-        { userId },
-        { lastQrCode: qrDataUrl },
+      // Client exists but not ready - destroy and recreate
+      try {
+        await instance.adapter.destroy();
+      } catch (e) {
+        this.logger.warn(`Error destroying stale client: ${e}`);
+      }
+      this.clients.delete(userId);
+    }
+
+    // Check session limit
+    if (this.clients.size >= this.MAX_CONCURRENT_SESSIONS) {
+      return {
+        status: 'limit_reached',
+        message: `Server is at capacity (${this.MAX_CONCURRENT_SESSIONS} active sessions). Please try again later.`,
+      };
+    }
+
+    await this.getOrCreateSession(userId);
+    await this.updateSessionStatus(userId, SessionStatus.CONNECTING);
+
+    const adapter = new BaileysAdapter();
+    const authPath = path.join(process.cwd(), this.AUTH_DIR, userId);
+
+    const instance: ClientInstance = {
+      adapter,
+      userId,
+      isReady: false,
+      lastActivity: Date.now(),
+      isBlasting: false,
+    };
+
+    this.clients.set(userId, instance);
+
+    try {
+      await adapter.initialize({
+        userId,
+        authPath,
+        onQr: () => {
+          // Ignore QR events for pairing code flow
+        },
+        onReady: async (info) => {
+          this.logger.log(`Client ready for user ${userId} (via pairing code)`);
+
+          const inst = this.clients.get(userId);
+          if (inst) {
+            inst.isReady = true;
+          }
+
+          const updateData: Partial<WhatsAppSession> = {
+            status: SessionStatus.CONNECTED,
+            lastConnectedAt: new Date(),
+          };
+
+          if (info.phoneNumber) {
+            updateData.phoneNumber = info.phoneNumber;
+          }
+          if (info.pushName) {
+            updateData.pushName = info.pushName;
+          }
+
+          await this.sessionRepository.update({ userId }, updateData);
+
+          await this.sessionRepository
+            .createQueryBuilder()
+            .update(WhatsAppSession)
+            .set({ lastQrCode: () => 'NULL', disconnectReason: () => 'NULL' })
+            .where('userId = :userId', { userId })
+            .execute();
+
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.CONNECTED,
+            phoneNumber: info.phoneNumber,
+            pushName: info.pushName,
+          });
+        },
+        onDisconnected: async (reason: string) => {
+          this.logger.log(`Client disconnected for user ${userId}: ${reason}`);
+
+          const inst = this.clients.get(userId);
+          if (inst) {
+            inst.isReady = false;
+          }
+
+          this.clients.delete(userId);
+
+          await this.sessionRepository.update(
+            { userId },
+            {
+              status: SessionStatus.DISCONNECTED,
+              lastDisconnectedAt: new Date(),
+              disconnectReason: reason,
+            },
+          );
+
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.DISCONNECTED,
+            reason,
+          });
+
+          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
+          if (
+            !this.manualDisconnectUsers.has(userId) &&
+            (
+              reason === 'Logged out' ||
+              reason === 'Session logged out' ||
+              reason === 'Connection replaced by another session'
+            )
+          ) {
+            this.logger.log(
+              `Session expired/logged out for user ${userId}. Auto-reconnecting (pairing) in 3s...`,
+            );
+            setTimeout(() => {
+              // Re-initialize with pairing if phone number is available
+              this.initializeSessionWithPairing(userId, phoneNumber).catch(
+                (e) =>
+                  this.logger.error(
+                    `Auto-reconnect (pairing) failed for user ${userId}`,
+                    e,
+                  ),
+              );
+            }, 3000);
+          } else if (this.manualDisconnectUsers.has(userId)) {
+            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            this.manualDisconnectUsers.delete(userId);
+          }
+        },
+        onAuthFailure: async (error: string) => {
+          this.logger.error(`Auth failure for user ${userId}: ${error}`);
+          await this.updateSessionStatus(userId, SessionStatus.FAILED, error);
+          this.whatsappGateway.sendStatusUpdate(userId, {
+            status: SessionStatus.FAILED,
+            error,
+          });
+        },
+        onMessage: async (message) => {
+          try {
+            if (message.fromMe) return;
+
+            const phoneNumber = message.from.replace('@c.us', '');
+
+            if (this.replyHandler) {
+              await this.replyHandler.handleIncomingMessage(
+                userId,
+                phoneNumber,
+                message,
+              );
+            }
+          } catch (error) {
+            this.logger.error(`Error processing incoming message: ${error}`);
+          }
+        },
+        onMessageUpsert: async (message) => {
+          if (this.messageStoreHandler) {
+            try {
+              await this.messageStoreHandler.handleMessageUpsert(
+                userId,
+                message,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message store handler: ${error}`);
+            }
+          }
+        },
+        onMessageStatusUpdate: async (update) => {
+          if (this.messageStatusHandler) {
+            try {
+              await this.messageStatusHandler.handleMessageStatusUpdate(
+                userId,
+                update.messageId,
+                update.remoteJid,
+                update.status,
+              );
+            } catch (error) {
+              this.logger.error(`Error in message status handler: ${error}`);
+            }
+          }
+        },
+      });
+
+      // Request pairing code after socket is initialized
+      const code = await adapter.requestPairingCode(phoneNumber);
+
+      return {
+        status: 'waiting_code',
+        code,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to initialize pairing for user ${userId}`,
+        error,
       );
 
-      // Emit via WebSocket
-      this.whatsappGateway.sendQrCode(userId, qrDataUrl);
-    });
-
-    client.on('ready', async () => {
-      this.logger.log(`Client ready for user ${userId}`);
-      
-      const instance = this.clients.get(userId);
-      if (instance) {
-        instance.isReady = true;
-      }
-
-      const info = client.info;
-      const updateData: Partial<WhatsAppSession> = {
-        status: SessionStatus.CONNECTED,
-        lastConnectedAt: new Date(),
-      };
-      
-      if (info?.wid?.user) {
-        updateData.phoneNumber = info.wid.user;
-      }
-      if (info?.pushname) {
-        updateData.pushName = info.pushname;
-      }
-      
-      await this.sessionRepository.update({ userId }, updateData);
-      
-      // Clear QR code separately using query builder
-      await this.sessionRepository
-        .createQueryBuilder()
-        .update(WhatsAppSession)
-        .set({ lastQrCode: () => 'NULL', disconnectReason: () => 'NULL' })
-        .where('userId = :userId', { userId })
-        .execute();
-
-      // Emit via WebSocket
-      this.whatsappGateway.sendStatusUpdate(userId, {
-        status: SessionStatus.CONNECTED,
-        phoneNumber: info?.wid?.user,
-        pushName: info?.pushname,
-      });
-    });
-
-    client.on('authenticated', () => {
-      this.logger.log(`Client authenticated for user ${userId}`);
-    });
-
-    client.on('auth_failure', async (msg: string) => {
-      this.logger.error(`Auth failure for user ${userId}: ${msg}`);
-      await this.updateSessionStatus(userId, SessionStatus.FAILED, msg);
-      this.whatsappGateway.sendStatusUpdate(userId, {
-        status: SessionStatus.FAILED,
-        error: msg,
-      });
-    });
-
-    client.on('disconnected', async (reason: string) => {
-      this.logger.log(`Client disconnected for user ${userId}: ${reason}`);
-
-      const instance = this.clients.get(userId);
-      if (instance) {
-        instance.isReady = false;
-        // Try to destroy client properly
-        try {
-          await instance.client.destroy();
-        } catch (e) {
-          this.logger.debug(`Error destroying client on disconnect: ${e}`);
-        }
-      }
-
-      // Cleanup client from map
+      try {
+        await adapter.destroy();
+      } catch (e) {}
       this.clients.delete(userId);
 
-      // Cleanup lock files to prevent issues on reconnect
-      this.cleanupSessionLock(userId);
-
-      await this.sessionRepository.update(
-        { userId },
-        {
-          status: SessionStatus.DISCONNECTED,
-          lastDisconnectedAt: new Date(),
-          disconnectReason: reason,
-        },
+      await this.updateSessionStatus(
+        userId,
+        SessionStatus.FAILED,
+        String(error),
       );
-
-      // Emit via WebSocket
-      this.whatsappGateway.sendStatusUpdate(userId, {
-        status: SessionStatus.DISCONNECTED,
-        reason,
-      });
-    });
-
-    // Listen for incoming messages for reply detection
-    client.on('message', async (message: any) => {
-      try {
-        // Ignore messages sent by the user themselves
-        if (message.fromMe) return;
-
-        // Extract phone number from message
-        const phoneNumber = message.from.replace('@c.us', '');
-
-        // Process through reply handler if available
-        if (this.replyHandler) {
-          await this.replyHandler.handleIncomingMessage(userId, phoneNumber, message);
-        }
-      } catch (error) {
-        this.logger.error(`Error processing incoming message: ${error}`);
-      }
-    });
+      throw error;
+    }
   }
 
   async disconnectSession(userId: string): Promise<void> {
+    // Mark as manual disconnect to prevent auto-reconnect
+    this.manualDisconnectUsers.add(userId);
+
     const instance = this.clients.get(userId);
     if (instance) {
       try {
-        await instance.client.logout();
-        await instance.client.destroy();
+        await instance.adapter.logout();
       } catch (error) {
-        this.logger.error(`Error disconnecting client for user ${userId}`, error);
+        this.logger.error(
+          `Error disconnecting client for user ${userId}`,
+          error,
+        );
       }
       this.clients.delete(userId);
     }
 
-    // Cleanup lock files to prevent future issues
-    this.cleanupSessionLock(userId);
-
-    await this.updateSessionStatus(userId, SessionStatus.DISCONNECTED, 'Manual disconnect');
+    await this.updateSessionStatus(
+      userId,
+      SessionStatus.DISCONNECTED,
+      'Manual disconnect',
+    );
   }
 
   async forceDisconnect(userId: string): Promise<void> {
@@ -525,30 +699,30 @@ export class WhatsAppService implements OnModuleDestroy {
     const instance = this.clients.get(userId);
     if (instance) {
       try {
-        await instance.client.destroy();
+        await instance.adapter.destroy();
       } catch (error) {
-        this.logger.warn(`Error destroying client for user ${userId}: ${error}`);
+        this.logger.warn(
+          `Error destroying client for user ${userId}: ${error}`,
+        );
       }
       this.clients.delete(userId);
     }
 
-    // Kill any orphan processes
-    await this.killOrphanProcesses(userId);
-
-    // Aggressive cleanup of lock files
-    this.cleanupSessionLock(userId);
-
-    await this.updateSessionStatus(userId, SessionStatus.DISCONNECTED, 'Force disconnect');
+    await this.updateSessionStatus(
+      userId,
+      SessionStatus.DISCONNECTED,
+      'Force disconnect',
+    );
   }
 
   async getSessionStatus(userId: string): Promise<WhatsAppSession | null> {
     return this.sessionRepository.findOne({ where: { userId } });
   }
 
-  /**
-   * Check if a phone number is registered on WhatsApp
-   */
-  async isNumberRegistered(userId: string, phoneNumber: string): Promise<boolean> {
+  async isNumberRegistered(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<boolean> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
       throw new Error('WhatsApp session is not connected');
@@ -556,40 +730,35 @@ export class WhatsAppService implements OnModuleDestroy {
 
     try {
       const chatId = this.formatPhoneNumber(phoneNumber);
-      const isRegistered = await instance.client.isRegisteredUser(chatId);
-      return isRegistered;
+      return await instance.adapter.isRegisteredUser(chatId);
     } catch (error) {
-      this.logger.warn(`Failed to check if number ${phoneNumber} is registered: ${error}`);
-      // If check fails, assume registered to avoid false negatives
+      this.logger.warn(
+        `Failed to check if number ${phoneNumber} is registered: ${error}`,
+      );
       return true;
     }
   }
 
-  async sendMessage(userId: string, phoneNumber: string, message: string): Promise<boolean> {
+  async sendMessage(
+    userId: string,
+    phoneNumber: string,
+    message: string,
+  ): Promise<{ success: boolean; messageId?: string }> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
       throw new Error('WhatsApp session is not connected');
     }
 
     try {
-      // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
-      
-      // Update activity timestamp
       this.updateActivity(userId);
-      
-      await instance.client.sendMessage(chatId, message);
-      return true;
+      const result = await instance.adapter.sendMessage(chatId, message);
+      return { success: true, messageId: result.messageId };
     } catch (error: any) {
       const errorMessage = error?.message || String(error);
-      this.logger.error(`sendMessage error for user ${userId}: ${errorMessage}`);
-      
-      // Handle detached frame error specifically
-      if (errorMessage.includes('detached Frame') || errorMessage.includes('Protocol error') || errorMessage.includes('Target closed')) {
-        this.logger.warn(`Stale client detected for user ${userId}, forcing disconnect...`);
-        await this.forceDisconnect(userId);
-        throw new Error('WhatsApp session expired. Please reconnect.');
-      }
+      this.logger.error(
+        `sendMessage error for user ${userId}: ${errorMessage}`,
+      );
       throw error;
     }
   }
@@ -600,60 +769,69 @@ export class WhatsAppService implements OnModuleDestroy {
     message: string,
     mediaPath: string,
     mediaType?: string,
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; messageId?: string }> {
     const instance = this.clients.get(userId);
     if (!instance || !instance.isReady) {
       throw new Error('WhatsApp session is not connected');
     }
 
     try {
-      // Format phone number (add @c.us suffix)
       const chatId = this.formatPhoneNumber(phoneNumber);
-
-      // Update activity timestamp
       this.updateActivity(userId);
 
-      // Load media based on source type
-      let media: MessageMedia;
+      // Load media
+      let mediaData: MediaData;
 
       if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-        // R2 URL - download and cache
-        this.logger.debug(`Sending media from URL: ${mediaPath} (type: ${mediaType})`);
-        media = await this.getCachedMediaFromUrl(mediaPath);
+        this.logger.debug(
+          `Sending media from URL: ${mediaPath} (type: ${mediaType})`,
+        );
+        mediaData = await this.getCachedMediaFromUrl(mediaPath);
       } else {
-        // Local path
         let absolutePath = mediaPath;
         if (mediaPath.startsWith('/uploads')) {
           absolutePath = path.join(process.cwd(), mediaPath);
         }
-        this.logger.debug(`Sending media from local: ${absolutePath} (type: ${mediaType})`);
-        media = await this.getCachedMedia(absolutePath);
+        this.logger.debug(
+          `Sending media from local: ${absolutePath} (type: ${mediaType})`,
+        );
+        mediaData = await this.getCachedMedia(absolutePath);
       }
 
-      // Send based on media type
-      if (mediaType === 'document') {
-        // Documents are sent as files with filename
-        await instance.client.sendMessage(chatId, media, {
-          sendMediaAsDocument: true,
+      const result = await instance.adapter.sendMessageWithMedia(
+        chatId,
+        mediaData,
+        {
+          sendMediaAsDocument: mediaType === 'document',
           caption: message,
-        });
-      } else {
-        // Images, videos, audio are sent with caption
-        await instance.client.sendMessage(chatId, media, {
-          caption: message,
-        });
-      }
+        },
+      );
 
-      return true;
+      return { success: true, messageId: result.messageId };
     } catch (error: any) {
-      // Handle detached frame error specifically
-      if (error?.message?.includes('detached Frame') || error?.message?.includes('Protocol error')) {
-        this.logger.warn(`Stale client detected for user ${userId}, forcing disconnect...`);
-        await this.forceDisconnect(userId);
-        throw new Error('WhatsApp session expired. Please reconnect.');
-      }
-      this.logger.error(`Failed to send message with media for user ${userId}`, error);
+      this.logger.error(
+        `Failed to send message with media for user ${userId}`,
+        error,
+      );
       throw error;
+    }
+  }
+
+  async markMessagesAsRead(
+    userId: string,
+    keys: { remoteJid: string; id: string; fromMe: boolean }[],
+  ): Promise<void> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return;
+    }
+
+    try {
+      await instance.adapter.markMessagesAsRead(keys);
+    } catch (error) {
+      this.logger.error(
+        `Error marking messages as read for user ${userId}: ${error}`,
+      );
     }
   }
 
@@ -662,48 +840,79 @@ export class WhatsAppService implements OnModuleDestroy {
     return instance?.isReady || false;
   }
 
-  private formatPhoneNumber(phone: string): string {
-    // Remove any non-digit characters
+  // Cache for resolved phone numbers (Baileys JID → canonical phone)
+  private phoneResolveCache: Map<string, string> = new Map();
+
+  async resolvePhoneNumber(
+    userId: string,
+    phone: string,
+  ): Promise<string> {
     let cleaned = phone.replace(/\D/g, '');
-    
-    // Remove leading 0 and add country code if needed
     if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);
     }
-    
-    // Add @c.us suffix
+
+    // Check cache first
+    const cached = this.phoneResolveCache.get(cleaned);
+    if (cached) return cached;
+
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) return cleaned;
+
+    try {
+      const results = await instance.adapter.onWhatsApp([cleaned]);
+      if (results.length > 0 && results[0].exists) {
+        const resolved = results[0].jid.replace('@c.us', '');
+        this.phoneResolveCache.set(cleaned, resolved);
+        this.phoneResolveCache.set(resolved, resolved);
+        this.logger.debug(`Phone resolved: ${cleaned} → ${resolved}`);
+        return resolved;
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to resolve phone ${cleaned}: ${e}`);
+    }
+
+    return cleaned;
+  }
+
+  private formatPhoneNumber(phone: string): string {
+    let cleaned = phone.replace(/\D/g, '');
+
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+
     return cleaned + '@c.us';
   }
 
-  private async getCachedMedia(absolutePath: string): Promise<MessageMedia> {
+  private async getCachedMedia(absolutePath: string): Promise<MediaData> {
     const now = Date.now();
     const cached = this.mediaCache.get(absolutePath);
 
-    // Return cached if valid
     if (cached && cached.expiresAt > now) {
-      // Extend expiration on use
       cached.expiresAt = now + this.CACHE_TTL_MS;
       return cached.media;
     }
 
-    // Load fresh media
     if (!fs.existsSync(absolutePath)) {
       throw new Error(`File not found: ${absolutePath}`);
     }
 
-    const media = MessageMedia.fromFilePath(absolutePath);
-    
-    // Validate media loaded correctly
-    if (!media || !media.data) {
-       throw new Error(`Failed to load media from ${absolutePath}`);
-    }
+    const buffer = fs.readFileSync(absolutePath);
+    const base64 = buffer.toString('base64');
+    const mimetype = this.getMimeTypeFromPath(absolutePath);
+
+    const media: MediaData = {
+      mimetype,
+      data: base64,
+      filename: path.basename(absolutePath),
+    };
 
     this.mediaCache.set(absolutePath, {
       media,
       expiresAt: now + this.CACHE_TTL_MS,
     });
 
-    // Cleanup expired cache entries periodically (lazy cleanup)
     if (this.mediaCache.size > 100) {
       this.cleanupMediaCache();
     }
@@ -720,37 +929,42 @@ export class WhatsAppService implements OnModuleDestroy {
     }
   }
 
-  private async getCachedMediaFromUrl(url: string): Promise<MessageMedia> {
+  private async getCachedMediaFromUrl(url: string): Promise<MediaData> {
     const now = Date.now();
     const cached = this.mediaCache.get(url);
 
-    // Return cached if valid
     if (cached && cached.expiresAt > now) {
       cached.expiresAt = now + this.CACHE_TTL_MS;
       return cached.media;
     }
 
-    // Try to download via S3 SDK first (bypasses ISP completely)
+    // Try to download via S3 SDK first (bypasses ISP interception)
     let buffer: Buffer;
     const r2Key = this.storageService.extractKeyFromUrl(url);
-    
+
     if (r2Key && this.storageService.isR2Enabled()) {
-      this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
-      buffer = await this.storageService.downloadFromR2(r2Key);
+      try {
+        this.logger.debug(`Downloading from R2 via S3 SDK: ${r2Key}`);
+        buffer = await this.storageService.downloadFromR2(r2Key);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to download via S3 SDK, falling back to HTTP: ${error}`,
+        );
+        this.logger.debug(`Downloading via HTTP (Fallback): ${url}`);
+        buffer = await this.downloadBuffer(url);
+      }
     } else {
-      // Fallback to HTTP download
       this.logger.debug(`Downloading via HTTP: ${url}`);
-      buffer = await this.downloadImageBuffer(url);
+      buffer = await this.downloadBuffer(url);
     }
-    
-    const mimeType = this.getMimeTypeFromUrl(url);
+
+    const mimetype = this.getMimeTypeFromPath(url);
     const base64 = buffer.toString('base64');
-    
-    const media = new MessageMedia(mimeType, base64);
-    
-    if (!media || !media.data) {
-      throw new Error(`Failed to load media from URL: ${url}`);
-    }
+
+    const media: MediaData = {
+      mimetype,
+      data: base64,
+    };
 
     this.mediaCache.set(url, {
       media,
@@ -764,50 +978,50 @@ export class WhatsAppService implements OnModuleDestroy {
     return media;
   }
 
-  private async downloadImageBuffer(url: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const isHttps = url.startsWith('https');
-      const protocol = isHttps ? require('https') : require('http');
-      
-      // Options to bypass ISP SSL interception (Telkomsel etc)
-      const options = isHttps ? { rejectUnauthorized: false } : {};
-      
-      const request = protocol.get(url, options, (response: any) => {
-        // Handle redirects
-        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-          return this.downloadImageBuffer(response.headers.location).then(resolve).catch(reject);
-        }
-        
-        if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download image: HTTP ${response.statusCode}`));
-          return;
-        }
-
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
+  private async downloadBuffer(url: string): Promise<Buffer> {
+    try {
+      this.logger.debug(`Downloading via Axios: ${url}`);
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 30000, // 30s timeout
       });
-      
-      request.on('error', reject);
-    });
+      this.logger.debug(
+        `Download finished via Axios: ${url} (${response.data.length} bytes)`,
+      );
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      this.logger.error(`Axios download failed: ${error.message}`);
+      throw error;
+    }
   }
 
-  private getMimeTypeFromUrl(url: string): string {
-    const ext = url.split('.').pop()?.toLowerCase() || 'jpg';
+  private getMimeTypeFromPath(filePath: string): string {
+    const ext =
+      filePath.split('.').pop()?.toLowerCase()?.split('?')[0] || 'bin';
     const mimeTypes: Record<string, string> = {
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'gif': 'image/gif',
-      'webp': 'image/webp',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      mp4: 'video/mp4',
+      avi: 'video/x-msvideo',
+      mov: 'video/quicktime',
+      mp3: 'audio/mpeg',
+      ogg: 'audio/ogg',
+      wav: 'audio/wav',
+      pdf: 'application/pdf',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     };
-    return mimeTypes[ext] || 'image/jpeg';
+    return mimeTypes[ext] || 'application/octet-stream';
   }
 
   private async getOrCreateSession(userId: string): Promise<WhatsAppSession> {
     let session = await this.sessionRepository.findOne({ where: { userId } });
-    
+
     if (!session) {
       session = this.sessionRepository.create({
         userId,
@@ -825,12 +1039,12 @@ export class WhatsAppService implements OnModuleDestroy {
     reason?: string,
   ): Promise<void> {
     await this.getOrCreateSession(userId);
-    
+
     const updateData: Partial<WhatsAppSession> = { status };
     if (reason) {
       updateData.disconnectReason = reason;
     }
-    
+
     await this.sessionRepository.update({ userId }, updateData);
   }
 
@@ -842,7 +1056,14 @@ export class WhatsAppService implements OnModuleDestroy {
     sortBy?: string;
     order?: 'ASC' | 'DESC';
   }): Promise<{ data: WhatsAppSession[]; total: number }> {
-    const { page = 1, limit = 10, search, status, sortBy = 'updatedAt', order = 'DESC' } = query || {};
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      sortBy = 'updatedAt',
+      order = 'DESC',
+    } = query || {};
 
     const qb = this.sessionRepository.createQueryBuilder('session');
     qb.leftJoinAndSelect('session.user', 'user');
@@ -867,9 +1088,6 @@ export class WhatsAppService implements OnModuleDestroy {
     return { data, total };
   }
 
-  /**
-   * Get all contacts from WhatsApp
-   */
   async getWhatsAppContacts(userId: string): Promise<{
     contacts: Array<{
       phoneNumber: string;
@@ -888,54 +1106,33 @@ export class WhatsAppService implements OnModuleDestroy {
     try {
       this.updateActivity(userId);
 
-      const waContacts = await instance.client.getContacts();
+      const contacts = await instance.adapter.getContacts();
 
-      this.logger.debug(`Raw contacts from WA: ${waContacts.length}`);
+      this.logger.debug(`Raw contacts from WA: ${contacts.length}`);
 
-      // Filter dan format contacts
-      const contacts = waContacts
-        .filter((contact: any) => {
-          // Exclude groups, broadcast, status, dan self
-          // Include both personal and business contacts
-          return (
-            !contact.isGroup &&
-            contact.id?.server === 'c.us' &&
-            !contact.isMe &&
-            contact.id?.user // Has phone number
-          );
-        })
-        .map((contact: any) => ({
-          phoneNumber: contact.id?.user || contact.number || '',
-          name: contact.name || null,
-          pushname: contact.pushname || null,
-          isMyContact: contact.isMyContact || false,
-          isWAContact: contact.isWAContact !== false,
-        }))
-        .filter((c: any) => c.phoneNumber); // Remove empty phone numbers
+      // Filter out empty phone numbers
+      const filtered = contacts.filter((c) => c.phoneNumber);
 
-      this.logger.log(`Retrieved ${contacts.length} contacts from WhatsApp for user ${userId}`);
+      this.logger.log(
+        `Retrieved ${filtered.length} contacts from WhatsApp for user ${userId}`,
+      );
 
       return {
-        contacts,
-        total: contacts.length,
+        contacts: filtered,
+        total: filtered.length,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to get WhatsApp contacts for user ${userId}: ${error}`);
-
-      // Handle stale client
-      if (error?.message?.includes('detached Frame') || error?.message?.includes('Protocol error')) {
-        await this.forceDisconnect(userId);
-        throw new Error('WhatsApp session expired. Please reconnect.');
-      }
-
+      this.logger.error(
+        `Failed to get WhatsApp contacts for user ${userId}: ${error}`,
+      );
       throw error;
     }
   }
 
-  /**
-   * Check if multiple numbers are registered on WhatsApp
-   */
-  async checkNumbersRegistered(userId: string, phoneNumbers: string[]): Promise<{
+  async checkNumbersRegistered(
+    userId: string,
+    phoneNumbers: string[],
+  ): Promise<{
     registered: string[];
     notRegistered: string[];
   }> {
@@ -952,7 +1149,7 @@ export class WhatsAppService implements OnModuleDestroy {
     for (const phone of phoneNumbers) {
       try {
         const chatId = this.formatPhoneNumber(phone);
-        const isRegistered = await instance.client.isRegisteredUser(chatId);
+        const isRegistered = await instance.adapter.isRegisteredUser(chatId);
 
         if (isRegistered) {
           registered.push(phone);
@@ -961,12 +1158,101 @@ export class WhatsAppService implements OnModuleDestroy {
         }
       } catch (error) {
         this.logger.warn(`Failed to check number ${phone}: ${error}`);
-        // Assume registered if check fails
         registered.push(phone);
       }
     }
 
     return { registered, notRegistered };
   }
-}
 
+  /**
+   * Get contact info by phone number (for pushName lookup)
+   */
+  async getContactByPhone(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{
+    phoneNumber: string;
+    name: string | null;
+    pushname: string | null;
+  } | null> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return null;
+    }
+
+    try {
+      const contact = await instance.adapter.getContactByPhone(phoneNumber);
+      return contact
+        ? {
+            phoneNumber: contact.phoneNumber,
+            name: contact.name,
+            pushname: contact.pushname,
+          }
+        : null;
+    } catch (error) {
+      this.logger.warn(`Failed to get contact for ${phoneNumber}: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get multiple contacts' pushNames in bulk
+   */
+  async getContactsPushNames(
+    userId: string,
+    phoneNumbers: string[],
+  ): Promise<Record<string, string | null>> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      return {};
+    }
+
+    const result: Record<string, string | null> = {};
+
+    try {
+      const contacts = await instance.adapter.getContacts();
+      const contactMap = new Map<string, string | null>();
+
+      // Build a map of normalized phone -> pushname
+      for (const contact of contacts) {
+        let normalized = contact.phoneNumber.replace(/\D/g, '');
+        if (normalized.startsWith('0')) {
+          normalized = '62' + normalized.substring(1);
+        }
+        contactMap.set(normalized, contact.pushname || contact.name);
+      }
+
+      // Look up each requested phone number
+      for (const phone of phoneNumbers) {
+        let normalized = phone.replace(/\D/g, '');
+        if (normalized.startsWith('0')) {
+          normalized = '62' + normalized.substring(1);
+        }
+        result[phone] = contactMap.get(normalized) || null;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to get contacts pushNames: ${error}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Revoke/delete a message for everyone
+   */
+  async revokeMessage(
+    userId: string,
+    phoneNumber: string,
+    messageId: string,
+  ): Promise<void> {
+    const instance = this.clients.get(userId);
+    if (!instance || !instance.isReady) {
+      throw new Error('WhatsApp session is not connected');
+    }
+
+    const chatId = this.formatPhoneNumber(phoneNumber);
+    await instance.adapter.revokeMessage(chatId, messageId);
+    this.updateActivity(userId);
+  }
+}

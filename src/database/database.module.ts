@@ -13,6 +13,17 @@ import { Template } from './entities/template.entity';
 import { PasswordReset } from './entities/password-reset.entity';
 import { AuditLog } from './entities/audit-log.entity';
 import { Notification } from './entities/notification.entity';
+import { ChatMessage } from './entities/chat-message.entity';
+import { PinnedConversation } from './entities/pinned-conversation.entity';
+import { UserSettings } from './entities/user-settings.entity';
+import { AiKnowledgeBase } from './entities/ai-knowledge-base.entity';
+import { AiSettings } from './entities/ai-settings.entity';
+import { LeadScore } from './entities/lead-score.entity';
+import { LeadScoreSettings } from './entities/lead-score-settings.entity';
+import { ConversationFunnel } from './entities/conversation-funnel.entity';
+import { AnalyticsSnapshot } from './entities/analytics-snapshot.entity';
+import { ChatConversation } from './entities/chat-conversation.entity';
+import { Product } from './entities/product.entity';
 
 @Module({
   imports: [
@@ -26,12 +37,37 @@ import { Notification } from './entities/notification.entity';
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
-        entities: [User, Package, Payment, Subscription, WhatsAppSession, Blast, BlastMessage, BlastReply, Contact, Template, PasswordReset, AuditLog, Notification],
+        entities: [
+          User,
+          Package,
+          Payment,
+          Subscription,
+          WhatsAppSession,
+          Blast,
+          BlastMessage,
+          BlastReply,
+          Contact,
+          Template,
+          PasswordReset,
+          AuditLog,
+          Notification,
+          ChatMessage,
+          PinnedConversation,
+          UserSettings,
+          AiKnowledgeBase,
+          AiSettings,
+          LeadScore,
+          LeadScoreSettings,
+          ConversationFunnel,
+          AnalyticsSnapshot,
+          ChatConversation,
+          Product,
+        ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!
         synchronize: true,
         logging: configService.get<string>('app.nodeEnv') === 'development',
-        extra:{
+        extra: {
           timezone: 'UTC',
         },
       }),

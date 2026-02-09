@@ -23,7 +23,10 @@ export class AuditLogQueryDto {
   @IsOptional()
   userId?: string;
 
-  @ApiPropertyOptional({ enum: AuditAction, description: 'Filter by action type' })
+  @ApiPropertyOptional({
+    enum: AuditAction,
+    description: 'Filter by action type',
+  })
   @IsEnum(AuditAction)
   @IsOptional()
   action?: AuditAction;

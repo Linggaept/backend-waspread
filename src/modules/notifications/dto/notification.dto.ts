@@ -15,12 +15,18 @@ export class NotificationQueryDto {
   @Min(1)
   limit?: number;
 
-  @ApiPropertyOptional({ example: 'false', description: 'Filter by read status' })
+  @ApiPropertyOptional({
+    example: 'false',
+    description: 'Filter by read status',
+  })
   @IsOptional()
   @IsString()
   isRead?: string;
 
-  @ApiPropertyOptional({ enum: NotificationType, description: 'Filter by notification type' })
+  @ApiPropertyOptional({
+    enum: NotificationType,
+    description: 'Filter by notification type',
+  })
   @IsEnum(NotificationType)
   @IsOptional()
   type?: NotificationType;

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Package } from '../../database/entities/package.entity';
@@ -18,7 +23,9 @@ export class PackagesService implements OnModuleInit {
 
   private async seedFreeTrialPackage() {
     const freePackageName = 'Free Trial';
-    const existing = await this.packageRepository.findOne({ where: { name: freePackageName } });
+    const existing = await this.packageRepository.findOne({
+      where: { name: freePackageName },
+    });
 
     if (!existing) {
       this.logger.log('Seeding Free Trial package...');
@@ -68,7 +75,10 @@ export class PackagesService implements OnModuleInit {
     return pkg;
   }
 
-  async update(id: string, updatePackageDto: UpdatePackageDto): Promise<Package> {
+  async update(
+    id: string,
+    updatePackageDto: UpdatePackageDto,
+  ): Promise<Package> {
     const pkg = await this.findOne(id);
     Object.assign(pkg, updatePackageDto);
     return this.packageRepository.save(pkg);

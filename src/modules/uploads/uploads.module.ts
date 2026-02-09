@@ -19,7 +19,8 @@ if (!fs.existsSync(tempDir)) {
       storage: diskStorage({
         destination: tempDir,
         filename: (req, file, callback) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
           const ext = path.extname(file.originalname);
           callback(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
         },
@@ -33,4 +34,3 @@ if (!fs.existsSync(tempDir)) {
   exports: [UploadsService, StorageService, MulterModule],
 })
 export class UploadsModule {}
-

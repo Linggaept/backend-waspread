@@ -5,6 +5,8 @@ import { BlastsService } from './blasts.service';
 import { BlastsController } from './blasts.controller';
 import { BlastProcessor } from './processors/blast.processor';
 import { Blast, BlastMessage } from '../../database/entities/blast.entity';
+import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { ChatConversation } from '../../database/entities/chat-conversation.entity';
 import { BlastReply } from '../../database/entities/blast-reply.entity';
 import { User } from '../../database/entities/user.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -16,10 +18,18 @@ import { TemplatesModule } from '../templates/templates.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ReplyDetectionService } from './services/reply-detection.service';
 import { BlastRepliesService } from './services/blast-replies.service';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Blast, BlastMessage, BlastReply, User]),
+    TypeOrmModule.forFeature([
+      Blast,
+      BlastMessage,
+      ChatMessage,
+      ChatConversation,
+      BlastReply,
+      User,
+    ]),
     BullModule.registerQueue({
       name: 'blast',
     }),
@@ -29,9 +39,15 @@ import { BlastRepliesService } from './services/blast-replies.service';
     ContactsModule,
     TemplatesModule,
     NotificationsModule,
+    AnalyticsModule,
   ],
   controllers: [BlastsController],
-  providers: [BlastsService, BlastProcessor, ReplyDetectionService, BlastRepliesService],
+  providers: [
+    BlastsService,
+    BlastProcessor,
+    ReplyDetectionService,
+    BlastRepliesService,
+  ],
   exports: [BlastsService, ReplyDetectionService],
 })
 export class BlastsModule implements OnModuleInit {
