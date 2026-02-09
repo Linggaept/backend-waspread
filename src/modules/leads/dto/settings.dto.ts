@@ -36,6 +36,24 @@ export class UpdateLeadScoreSettingsDto {
   warmKeywords?: string[];
 
   @ApiPropertyOptional({
+    description: 'Keywords indicating deal closed won',
+    example: ['deal', 'transfer', 'done'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  closedWonKeywords?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Keywords indicating deal closed lost',
+    example: ['cancel', 'batal', 'skip'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  closedLostKeywords?: string[];
+
+  @ApiPropertyOptional({
     description: 'Weight for keyword factor (0-100)',
     example: 40,
   })

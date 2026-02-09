@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Readable } from 'stream';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import {
@@ -177,45 +178,62 @@ export class ReportsService {
     return csvContent;
   }
 
-  async exportAllBlastsToCsv(userId: string): Promise<string> {
-    const blasts = await this.getBlastReports(userId);
+  async exportAllBlastsToStream(userId: string): Promise<Readable> {
+    const BATCH_SIZE = 100;
+    const blastRepository = this.blastRepository;
 
-    if (blasts.length === 0) {
-      return '';
+    async function* generate() {
+      // Yield header
+      yield 'Name,Status,Total Recipients,Sent,Failed,Success Rate,Created At,Started At,Completed At,Duration (s)\n';
+
+      let page = 0;
+      while (true) {
+        const blasts = await blastRepository.find({
+          where: { userId },
+          order: { createdAt: 'DESC' },
+          skip: page * BATCH_SIZE,
+          take: BATCH_SIZE,
+        });
+
+        if (blasts.length === 0) {
+          break;
+        }
+
+        for (const blast of blasts) {
+          const totalProcessed = blast.sentCount + blast.failedCount;
+          const successRate =
+            totalProcessed > 0 ? (blast.sentCount / totalProcessed) * 100 : 0;
+          let durationSeconds = '';
+
+          if (blast.startedAt && blast.completedAt) {
+            durationSeconds = Math.round(
+              (blast.completedAt.getTime() - blast.startedAt.getTime()) / 1000,
+            ).toString();
+          }
+
+          const row = [
+            blast.name,
+            blast.status,
+            blast.totalRecipients,
+            blast.sentCount,
+            blast.failedCount,
+            `${Math.round(successRate * 100) / 100}%`,
+            blast.createdAt.toISOString(),
+            blast.startedAt ? blast.startedAt.toISOString() : '',
+            blast.completedAt ? blast.completedAt.toISOString() : '',
+            durationSeconds,
+          ]
+            .map((cell) => `"${cell}"`)
+            .join(',');
+
+          yield row + '\n';
+        }
+
+        page++;
+      }
     }
 
-    const headers = [
-      'Name',
-      'Status',
-      'Total Recipients',
-      'Sent',
-      'Failed',
-      'Success Rate',
-      'Created At',
-      'Started At',
-      'Completed At',
-      'Duration (s)',
-    ];
-
-    const rows = blasts.map((blast) => [
-      blast.name,
-      blast.status,
-      blast.totalRecipients.toString(),
-      blast.sentCount.toString(),
-      blast.failedCount.toString(),
-      `${blast.successRate}%`,
-      blast.createdAt.toISOString(),
-      blast.startedAt ? blast.startedAt.toISOString() : '',
-      blast.completedAt ? blast.completedAt.toISOString() : '',
-      blast.durationSeconds?.toString() || '',
-    ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
-
-    return csvContent;
+    return Readable.from(generate());
   }
 
   // Admin Reports

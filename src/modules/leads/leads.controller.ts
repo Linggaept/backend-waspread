@@ -163,7 +163,7 @@ export class LeadsController {
     schema: {
       type: 'object',
       properties: {
-        recalculated: { type: 'number', example: 50 },
+        enqueued: { type: 'number', example: 50 },
         total: { type: 'number', example: 50 },
       },
     },

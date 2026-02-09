@@ -101,7 +101,7 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         // Otherwise, only sync messages within the configured days
         // msg is WAMessage type with messageTimestamp property
         const msgTimestamp = (msg as any).messageTimestamp;
-        if (!msgTimestamp) return true; // Allow if no timestamp
+        if (!msgTimestamp) return false; // Skip if no timestamp (safer - prevents syncing all history)
 
         const timestamp =
           typeof msgTimestamp === 'number'

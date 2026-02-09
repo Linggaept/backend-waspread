@@ -6,6 +6,7 @@ import {
   FunnelStage,
   StageHistoryEntry,
 } from '../../../database/entities/conversation-funnel.entity';
+import { LeadScoreSettings } from '../../../database/entities/lead-score-settings.entity';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 
 // Stage order for progression (can only advance forward)
@@ -49,21 +50,22 @@ export class FunnelTrackerService {
     'free ongkir',
   ];
 
-  private readonly closingKeywords = [
-    'deal',
-    'ok fix',
-    'fix order',
-    'sudah transfer',
-    'sudah bayar',
-    'sudah tf',
-    'done transfer',
-    'udah bayar',
-    'udah transfer',
+  // Fallback defaults if settings not found
+  private readonly defaultClosedWon = ['sudah transfer'];
+
+  private readonly defaultClosedLost = [
+    'cancel',
+    'batal',
+    'gak jadi',
+    'skip',
+    'tidak jadi',
   ];
 
   constructor(
     @InjectRepository(ConversationFunnel)
     private readonly funnelRepository: Repository<ConversationFunnel>,
+    @InjectRepository(LeadScoreSettings)
+    private readonly settingsRepository: Repository<LeadScoreSettings>,
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
 
@@ -110,7 +112,9 @@ export class FunnelTrackerService {
     }
 
     const saved = await this.funnelRepository.save(funnel);
-    this.logger.log(`Funnel created/updated for ${normalizedPhone}: BLAST_SENT`);
+    this.logger.log(
+      `Funnel created/updated for ${normalizedPhone}: BLAST_SENT`,
+    );
 
     return saved;
   }
@@ -173,9 +177,28 @@ export class FunnelTrackerService {
     // Then check for keyword-based advancement
     const lowerBody = messageBody.toLowerCase();
 
-    // Check closing keywords first (highest priority)
-    for (const kw of this.closingKeywords) {
-      if (lowerBody.includes(kw)) {
+    // Get user settings for keywords
+    const settings = await this.settingsRepository.findOne({
+      where: { userId },
+    });
+
+    // Use settings or defaults
+    const closingKeywords = settings?.closedWonKeywords?.length
+      ? settings.closedWonKeywords
+      : this.defaultClosedWon;
+
+    const lostKeywords = settings?.closedLostKeywords?.length
+      ? settings.closedLostKeywords
+      : this.defaultClosedLost;
+
+    const negotiatingKeywords = this.negotiatingKeywords; // currently hardcoded, can be moved to DB too if needed
+    const interestedKeywords = settings?.warmKeywords?.length
+      ? settings.warmKeywords
+      : this.interestedKeywords; // Reuse warm keywords as 'interested' or keep separate
+
+    // Check closing won keywords first (highest priority)
+    for (const kw of closingKeywords) {
+      if (lowerBody.includes(kw.toLowerCase())) {
         await this.advanceStageIfNeeded(
           userId,
           normalizedPhone,
@@ -186,9 +209,22 @@ export class FunnelTrackerService {
       }
     }
 
+    // Check closing lost keywords
+    for (const kw of lostKeywords) {
+      if (lowerBody.includes(kw.toLowerCase())) {
+        await this.advanceStageIfNeeded(
+          userId,
+          normalizedPhone,
+          FunnelStage.CLOSED_LOST,
+          `keyword:${kw}`,
+        );
+        return;
+      }
+    }
+
     // Check negotiating keywords
-    for (const kw of this.negotiatingKeywords) {
-      if (lowerBody.includes(kw)) {
+    for (const kw of negotiatingKeywords) {
+      if (lowerBody.includes(kw.toLowerCase())) {
         await this.advanceStageIfNeeded(
           userId,
           normalizedPhone,
@@ -200,8 +236,8 @@ export class FunnelTrackerService {
     }
 
     // Check interested keywords
-    for (const kw of this.interestedKeywords) {
-      if (lowerBody.includes(kw)) {
+    for (const kw of interestedKeywords) {
+      if (lowerBody.includes(kw.toLowerCase())) {
         await this.advanceStageIfNeeded(
           userId,
           normalizedPhone,
@@ -386,10 +422,7 @@ export class FunnelTrackerService {
   /**
    * Emit WebSocket event for funnel update
    */
-  private emitFunnelUpdate(
-    userId: string,
-    funnel: ConversationFunnel,
-  ): void {
+  private emitFunnelUpdate(userId: string, funnel: ConversationFunnel): void {
     this.whatsAppGateway.server.to(`user:${userId}`).emit('funnel:update', {
       phoneNumber: funnel.phoneNumber,
       currentStage: funnel.currentStage,
@@ -404,9 +437,7 @@ export class FunnelTrackerService {
    * Mark stale conversations as CLOSED_LOST
    * Called by cron job
    */
-  async markStaleConversationsAsLost(
-    staleDays: number = 7,
-  ): Promise<number> {
+  async markStaleConversationsAsLost(staleDays: number = 7): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - staleDays);
 

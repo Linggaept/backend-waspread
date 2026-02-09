@@ -7,6 +7,7 @@ import { ChatMessage } from '../../database/entities/chat-message.entity';
 import { LeadScore } from '../../database/entities/lead-score.entity';
 import { Blast } from '../../database/entities/blast.entity';
 import { Contact } from '../../database/entities/contact.entity';
+import { LeadScoreSettings } from '../../database/entities/lead-score-settings.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './services/analytics.service';
 import { FunnelTrackerService } from './services/funnel-tracker.service';
@@ -22,6 +23,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
       LeadScore,
       Blast,
       Contact,
+      LeadScoreSettings,
     ]),
     ScheduleModule.forRoot(),
     forwardRef(() => WhatsAppModule),

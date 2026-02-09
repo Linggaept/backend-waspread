@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, IsEnum } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, IsEnum, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { SessionStatus } from '../../../database/entities/whatsapp-session.entity';
@@ -26,6 +26,7 @@ export class SessionQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   @IsOptional()
   limit?: number = 10;
 

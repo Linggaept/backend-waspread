@@ -9,6 +9,7 @@ import {
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -56,7 +57,10 @@ export class AnalyticsController {
 
   @Get('funnel')
   @ApiOperation({ summary: 'Get conversion funnel analytics' })
-  @ApiResponse({ status: 200, description: 'Funnel data retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Funnel data retrieved successfully',
+  })
   async getFunnel(
     @CurrentUser('id') userId: string,
     @Query() query: FunnelQueryDto,
@@ -76,14 +80,20 @@ export class AnalyticsController {
 
   @Get('funnel/:phoneNumber')
   @ApiOperation({ summary: 'Get funnel detail for a phone number' })
-  @ApiParam({ name: 'phoneNumber', description: 'Phone number (e.g., 628123456789)' })
+  @ApiParam({
+    name: 'phoneNumber',
+    description: 'Phone number (e.g., 628123456789)',
+  })
   @ApiResponse({ status: 200, description: 'Funnel detail retrieved' })
   @ApiResponse({ status: 404, description: 'Funnel not found' })
   async getFunnelDetail(
     @CurrentUser('id') userId: string,
     @Param('phoneNumber') phoneNumber: string,
   ) {
-    const funnel = await this.funnelTrackerService.getFunnel(userId, phoneNumber);
+    const funnel = await this.funnelTrackerService.getFunnel(
+      userId,
+      phoneNumber,
+    );
     if (!funnel) {
       throw new NotFoundException(`No funnel found for ${phoneNumber}`);
     }
@@ -92,7 +102,10 @@ export class AnalyticsController {
 
   @Put('funnel/:phoneNumber/stage')
   @ApiOperation({ summary: 'Manually update funnel stage' })
-  @ApiParam({ name: 'phoneNumber', description: 'Phone number (e.g., 628123456789)' })
+  @ApiParam({
+    name: 'phoneNumber',
+    description: 'Phone number (e.g., 628123456789)',
+  })
   @ApiResponse({ status: 200, description: 'Stage updated successfully' })
   async updateFunnelStage(
     @CurrentUser('id') userId: string,
@@ -169,7 +182,9 @@ export class AnalyticsController {
   // ==================== AI Insights ====================
 
   @Get('insights/patterns')
-  @ApiOperation({ summary: 'Get aggregate patterns from all analyzed conversations' })
+  @ApiOperation({
+    summary: 'Get aggregate patterns from all analyzed conversations',
+  })
   @ApiResponse({ status: 200, description: 'Patterns retrieved' })
   async getPatterns(
     @CurrentUser('id') userId: string,
@@ -181,7 +196,10 @@ export class AnalyticsController {
 
   @Get('insights/:phoneNumber')
   @ApiOperation({ summary: 'Get AI insight for a conversation' })
-  @ApiParam({ name: 'phoneNumber', description: 'Phone number (e.g., 628123456789)' })
+  @ApiParam({
+    name: 'phoneNumber',
+    description: 'Phone number (e.g., 628123456789)',
+  })
   @ApiResponse({ status: 200, description: 'Insight retrieved' })
   @ApiResponse({ status: 404, description: 'No insight available' })
   async getInsight(
@@ -194,15 +212,21 @@ export class AnalyticsController {
     );
 
     if (!insight) {
-      throw new NotFoundException('No AI insight available for this conversation');
+      throw new NotFoundException(
+        'No AI insight available for this conversation',
+      );
     }
 
     return insight;
   }
 
   @Post('insights/:phoneNumber/analyze')
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   @ApiOperation({ summary: 'Force AI analysis for a conversation' })
-  @ApiParam({ name: 'phoneNumber', description: 'Phone number (e.g., 628123456789)' })
+  @ApiParam({
+    name: 'phoneNumber',
+    description: 'Phone number (e.g., 628123456789)',
+  })
   @ApiResponse({ status: 201, description: 'Analysis completed' })
   async analyzeConversation(
     @CurrentUser('id') userId: string,
@@ -213,7 +237,10 @@ export class AnalyticsController {
 
   // ==================== Helper ====================
 
-  private getDateRange(query: AnalyticsQueryDto): { startDate: Date; endDate: Date } {
+  private getDateRange(query: AnalyticsQueryDto): {
+    startDate: Date;
+    endDate: Date;
+  } {
     const now = new Date();
     let startDate: Date;
     let endDate: Date = now;

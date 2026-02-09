@@ -37,6 +37,19 @@ export class LeadScoreSettings {
   })
   warmKeywords: string[];
 
+  @Column({
+    type: 'simple-array',
+    default:
+      'deal,ok fix,fix order,sudah transfer,sudah bayar,sudah tf,done transfer,udah bayar,udah transfer',
+  })
+  closedWonKeywords: string[];
+
+  @Column({
+    type: 'simple-array',
+    default: 'cancel,batal,gak jadi,mahal,skip,tidak jadi',
+  })
+  closedLostKeywords: string[];
+
   @Column({ type: 'int', default: 40 })
   keywordWeight: number;
 

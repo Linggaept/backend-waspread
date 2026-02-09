@@ -370,11 +370,26 @@ export class ChatsService implements OnModuleInit {
 
     const [conversations, total] = await qb.getManyAndCount();
 
+    // Batch fetch pushNames from WhatsApp for conversations without pushName
+    const phoneNumbers = conversations.map((c) => c.phoneNumber);
+    let waPushNameMap: Record<string, string | null> = {};
+    try {
+      waPushNameMap = await this.whatsAppService.getContactsPushNames(
+        userId,
+        phoneNumbers,
+      );
+    } catch (error) {
+      // Silently fail - use cached pushNames
+    }
+
     // Transform to response format
     const data = conversations.map((conv) => {
+      // Prioritize: WA pushName > cached pushName
+      const pushName = waPushNameMap[conv.phoneNumber] || conv.pushName || null;
+
       return {
         phoneNumber: conv.phoneNumber,
-        pushName: conv.pushName || null,
+        pushName,
         contactName: conv.contactName || null,
         isPinned: pinnedSet.has(conv.phoneNumber),
         lastMessage: conv.lastMessageTimestamp
@@ -1106,6 +1121,21 @@ export class ChatsService implements OnModuleInit {
 
     this.logger.log(`Found ${phones.length} conversations to sync.`);
 
+    // Batch fetch pushNames from WhatsApp for all phone numbers
+    const phoneNumbers = phones.map((p) => p.phoneNumber);
+    let pushNameMap: Record<string, string | null> = {};
+    try {
+      pushNameMap = await this.whatsAppService.getContactsPushNames(
+        userId,
+        phoneNumbers,
+      );
+      this.logger.log(
+        `Fetched ${Object.keys(pushNameMap).filter((k) => pushNameMap[k]).length} pushNames from WhatsApp`,
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to fetch pushNames from WhatsApp: ${error}`);
+    }
+
     for (const { phoneNumber } of phones) {
       // Get last message
       const lastMessage = await this.chatMessageRepository.findOne({
@@ -1115,17 +1145,23 @@ export class ChatsService implements OnModuleInit {
       });
 
       if (lastMessage) {
-        await this.syncConversation(userId, sessionPhoneNumber, phoneNumber, {
-          id: lastMessage.id,
-          body: lastMessage.body,
-          type: lastMessage.messageType,
-          timestamp: lastMessage.timestamp,
-          direction: lastMessage.direction,
-          isRead: lastMessage.isRead,
-          hasMedia: lastMessage.hasMedia,
-          blastId: lastMessage.blastId,
-          blastName: lastMessage.blast?.name,
-        });
+        await this.syncConversation(
+          userId,
+          sessionPhoneNumber,
+          phoneNumber,
+          {
+            id: lastMessage.id,
+            body: lastMessage.body,
+            type: lastMessage.messageType,
+            timestamp: lastMessage.timestamp,
+            direction: lastMessage.direction,
+            isRead: lastMessage.isRead,
+            hasMedia: lastMessage.hasMedia,
+            blastId: lastMessage.blastId,
+            blastName: lastMessage.blast?.name,
+          },
+          pushNameMap[phoneNumber] || undefined,
+        );
       }
     }
     this.logger.log(`Conversation sync completed for user ${userId}.`);
@@ -1149,6 +1185,7 @@ export class ChatsService implements OnModuleInit {
       blastId?: string;
       blastName?: string;
     },
+    waPushName?: string,
   ): Promise<void> {
     try {
       let conversation = await this.chatConversationRepository.findOne({
@@ -1189,14 +1226,23 @@ export class ChatsService implements OnModuleInit {
       });
       conversation.unreadCount = unreadCount;
 
-      // Update contact info if needed
-      if (!conversation.contactName) {
+      // Update pushName from WhatsApp if provided
+      if (waPushName) {
+        conversation.pushName = waPushName;
+      }
+
+      // Update contact info from database if needed
+      if (!conversation.contactName || !conversation.pushName) {
         const contact = await this.contactRepository.findOne({
           where: { userId, phoneNumber },
         });
         if (contact) {
-          conversation.contactName = contact.name;
-          conversation.pushName = contact.waName;
+          if (!conversation.contactName) {
+            conversation.contactName = contact.name;
+          }
+          if (!conversation.pushName && contact.waName) {
+            conversation.pushName = contact.waName;
+          }
         }
       }
 

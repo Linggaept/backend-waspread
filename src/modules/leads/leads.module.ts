@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
+import { LeadsProcessor } from './leads.processor';
 import { LeadScore } from '../../database/entities/lead-score.entity';
 import { LeadScoreSettings } from '../../database/entities/lead-score-settings.entity';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
@@ -11,9 +13,12 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
   imports: [
     TypeOrmModule.forFeature([LeadScore, LeadScoreSettings, ChatMessage]),
     forwardRef(() => WhatsAppModule),
+    BullModule.registerQueue({
+      name: 'leads',
+    }),
   ],
   controllers: [LeadsController],
-  providers: [LeadsService],
+  providers: [LeadsService, LeadsProcessor],
   exports: [LeadsService],
 })
 export class LeadsModule {}
