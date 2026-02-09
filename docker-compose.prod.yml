@@ -43,6 +43,9 @@ services:
       # WhatsApp
       - MAX_WA_SESSIONS=${MAX_WA_SESSIONS}
       - WA_IDLE_TIMEOUT_MINUTES=${WA_IDLE_TIMEOUT_MINUTES}
+      # Gemini AI
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
     volumes:
       - baileys_auth:/usr/src/app/.baileys_auth
       - uploads_data:/usr/src/app/uploads
