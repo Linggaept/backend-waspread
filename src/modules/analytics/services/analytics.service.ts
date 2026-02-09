@@ -15,7 +15,10 @@ import {
   ChatMessage,
   ChatMessageDirection,
 } from '../../../database/entities/chat-message.entity';
-import { LeadScore, LeadScoreLevel } from '../../../database/entities/lead-score.entity';
+import {
+  LeadScore,
+  LeadScoreLevel,
+} from '../../../database/entities/lead-score.entity';
 import { Blast } from '../../../database/entities/blast.entity';
 import { Contact } from '../../../database/entities/contact.entity';
 import {
@@ -35,6 +38,10 @@ interface DateRange {
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
+  // In-memory cache for analytics overview (TTL: 5 minutes)
+  private overviewCache = new Map<string, { data: any; expiresAt: number }>();
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
   constructor(
     @InjectRepository(ConversationFunnel)
     private readonly funnelRepository: Repository<ConversationFunnel>,
@@ -53,6 +60,14 @@ export class AnalyticsService {
   // ==================== Overview Dashboard ====================
 
   async getOverview(userId: string, query: AnalyticsQueryDto) {
+    // Check cache first
+    const cacheKey = `${userId}:${query.period || '7d'}:${query.startDate || ''}:${query.endDate || ''}`;
+    const cached = this.overviewCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logger.debug(`Cache hit for analytics overview: ${cacheKey}`);
+      return cached.data;
+    }
+
     const dateRange = this.getDateRange(query);
 
     // Get message counts
@@ -98,7 +113,7 @@ export class AnalyticsService {
     // Calculate avg response time
     const avgResponseTime = await this.getAvgResponseTime(userId, dateRange);
 
-    return {
+    const result = {
       period: query.period || AnalyticsPeriod.LAST_7_DAYS,
       dateRange: {
         start: dateRange.startDate,
@@ -132,6 +147,24 @@ export class AnalyticsService {
             : 0,
       },
     };
+
+    // Cache the result
+    this.overviewCache.set(cacheKey, {
+      data: result,
+      expiresAt: Date.now() + this.CACHE_TTL_MS,
+    });
+
+    // Cleanup old cache entries (prevent memory leak)
+    if (this.overviewCache.size > 100) {
+      const now = Date.now();
+      for (const [key, value] of this.overviewCache.entries()) {
+        if (value.expiresAt < now) {
+          this.overviewCache.delete(key);
+        }
+      }
+    }
+
+    return result;
   }
 
   // ==================== Funnel Analytics ====================
@@ -214,7 +247,8 @@ export class AnalyticsService {
       const percentage = Math.round((count / total) * 100 * 10) / 10;
       const dropOff =
         index > 0
-          ? Math.round(((previousCount - count) / previousCount) * 100 * 10) / 10
+          ? Math.round(((previousCount - count) / previousCount) * 100 * 10) /
+            10
           : 0;
 
       previousCount = count || previousCount;
@@ -352,7 +386,9 @@ export class AnalyticsService {
           })
         : [];
 
-    const leadScoreMap = new Map(leadScores.map((l) => [l.phoneNumber, l.score]));
+    const leadScoreMap = new Map(
+      leadScores.map((l) => [l.phoneNumber, l.score]),
+    );
 
     // Get funnel stages
     const funnels =
@@ -363,12 +399,15 @@ export class AnalyticsService {
           })
         : [];
 
-    const funnelMap = new Map(funnels.map((f) => [f.phoneNumber, f.currentStage]));
+    const funnelMap = new Map(
+      funnels.map((f) => [f.phoneNumber, f.currentStage]),
+    );
 
     const data = messages.map((msg) => {
       const waitingMs = Date.now() - msg.timestamp.getTime();
-      const waitingHours = Math.round(waitingMs / (1000 * 60 * 60) * 10) / 10;
-      const leadScore = leadScoreMap.get(msg.phoneNumber) || LeadScoreLevel.COLD;
+      const waitingHours = Math.round((waitingMs / (1000 * 60 * 60)) * 10) / 10;
+      const leadScore =
+        leadScoreMap.get(msg.phoneNumber) || LeadScoreLevel.COLD;
       const funnelStage = funnelMap.get(msg.phoneNumber);
 
       // Calculate priority
@@ -463,13 +502,16 @@ export class AnalyticsService {
       leadScores.map((l) => [l.phoneNumber, l.score] as const),
     );
     const contactMap = new Map<string, { name?: string; waName?: string }>(
-      contacts.map((c) => [c.phoneNumber, { name: c.name, waName: c.waName }] as const),
+      contacts.map(
+        (c) => [c.phoneNumber, { name: c.name, waName: c.waName }] as const,
+      ),
     );
 
     const data = funnels.map((funnel) => {
       const contact = contactMap.get(funnel.phoneNumber);
       // Priority: funnel.contactName > contact.name > contact.waName
-      const displayName = funnel.contactName || contact?.name || contact?.waName || null;
+      const displayName =
+        funnel.contactName || contact?.name || contact?.waName || null;
 
       return {
         id: funnel.id,
@@ -588,9 +630,7 @@ export class AnalyticsService {
             total) *
             100,
         ),
-        avgReplyTime: avgReplyTime
-          ? this.formatDuration(avgReplyTime)
-          : 'N/A',
+        avgReplyTime: avgReplyTime ? this.formatDuration(avgReplyTime) : 'N/A',
       },
       conversion: {
         interested: stageCounts[FunnelStage.INTERESTED],
@@ -666,7 +706,9 @@ export class AnalyticsService {
       try {
         await this.generateSnapshotForUser(userId, yesterday, yesterdayEnd);
       } catch (error) {
-        this.logger.error(`Failed to generate snapshot for user ${userId}: ${error}`);
+        this.logger.error(
+          `Failed to generate snapshot for user ${userId}: ${error}`,
+        );
       }
     }
 
@@ -690,31 +732,26 @@ export class AnalyticsService {
     }
 
     // Calculate metrics
-    const [
-      messagesSent,
-      messagesReceived,
-      funnelCounts,
-      leadCounts,
-      revenue,
-    ] = await Promise.all([
-      this.chatMessageRepository.count({
-        where: {
-          userId,
-          direction: ChatMessageDirection.OUTGOING,
-          timestamp: Between(startDate, endDate),
-        },
-      }),
-      this.chatMessageRepository.count({
-        where: {
-          userId,
-          direction: ChatMessageDirection.INCOMING,
-          timestamp: Between(startDate, endDate),
-        },
-      }),
-      this.getFunnelCounts(userId, { startDate, endDate }),
-      this.getLeadCounts(userId),
-      this.getRevenue(userId, { startDate, endDate }),
-    ]);
+    const [messagesSent, messagesReceived, funnelCounts, leadCounts, revenue] =
+      await Promise.all([
+        this.chatMessageRepository.count({
+          where: {
+            userId,
+            direction: ChatMessageDirection.OUTGOING,
+            timestamp: Between(startDate, endDate),
+          },
+        }),
+        this.chatMessageRepository.count({
+          where: {
+            userId,
+            direction: ChatMessageDirection.INCOMING,
+            timestamp: Between(startDate, endDate),
+          },
+        }),
+        this.getFunnelCounts(userId, { startDate, endDate }),
+        this.getLeadCounts(userId),
+        this.getRevenue(userId, { startDate, endDate }),
+      ]);
 
     const snapshot = this.snapshotRepository.create({
       userId,
@@ -784,7 +821,9 @@ export class AnalyticsService {
       .createQueryBuilder('msg')
       .select('COUNT(DISTINCT msg.phoneNumber)', 'count')
       .where('msg.userId = :userId', { userId })
-      .andWhere('msg.timestamp >= :startDate', { startDate: dateRange.startDate })
+      .andWhere('msg.timestamp >= :startDate', {
+        startDate: dateRange.startDate,
+      })
       .andWhere('msg.timestamp <= :endDate', { endDate: dateRange.endDate })
       .getRawOne();
 
@@ -931,21 +970,20 @@ export class AnalyticsService {
     // Group messages by date
     const messages = await this.chatMessageRepository
       .createQueryBuilder('msg')
-      .select("DATE(msg.timestamp)", 'date')
+      .select('DATE(msg.timestamp)', 'date')
       .addSelect('msg.direction', 'direction')
       .addSelect('COUNT(*)', 'count')
       .where('msg.userId = :userId', { userId })
-      .andWhere('msg.timestamp >= :startDate', { startDate: dateRange.startDate })
+      .andWhere('msg.timestamp >= :startDate', {
+        startDate: dateRange.startDate,
+      })
       .andWhere('msg.timestamp <= :endDate', { endDate: dateRange.endDate })
-      .groupBy("DATE(msg.timestamp)")
+      .groupBy('DATE(msg.timestamp)')
       .addGroupBy('msg.direction')
       .getRawMany();
 
     // Organize by date
-    const dailyMap: Record<
-      string,
-      { sent: number; received: number }
-    > = {};
+    const dailyMap: Record<string, { sent: number; received: number }> = {};
 
     for (const row of messages) {
       const dateStr = row.date;

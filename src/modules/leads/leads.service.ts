@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   LeadScore,
   LeadScoreLevel,
@@ -35,6 +37,7 @@ export class LeadsService {
     private readonly settingsRepository: Repository<LeadScoreSettings>,
     @InjectRepository(ChatMessage)
     private readonly chatMessageRepository: Repository<ChatMessage>,
+    @InjectQueue('leads') private readonly leadsQueue: Queue,
     private readonly whatsAppGateway: WhatsAppGateway,
   ) {}
 
@@ -186,7 +189,13 @@ export class LeadsService {
         userId,
         phoneNumber: normalizedPhone,
         score: dto.score,
-        scoreBreakdown: { keyword: 0, responseTime: 0, engagement: 0, recency: 0, total: 0 },
+        scoreBreakdown: {
+          keyword: 0,
+          responseTime: 0,
+          engagement: 0,
+          recency: 0,
+          total: 0,
+        },
         factors: [
           {
             factor: 'manual_override',
@@ -246,7 +255,11 @@ export class LeadsService {
   }
 
   async bulkOverride(userId: string, dto: BulkScoreOverrideDto) {
-    const results: Array<{ phoneNumber: string; success: boolean; error?: string }> = [];
+    const results: Array<{
+      phoneNumber: string;
+      success: boolean;
+      error?: string;
+    }> = [];
 
     for (const item of dto.leads) {
       try {
@@ -291,20 +304,20 @@ export class LeadsService {
       phoneNumbers = result.map((r) => r.phoneNumber);
     }
 
-    let recalculated = 0;
+    const jobs = phoneNumbers.map((phoneNumber) => ({
+      name: 'recalculate-lead',
+      data: { userId, phoneNumber },
+      opts: {
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    }));
 
-    for (const phoneNumber of phoneNumbers) {
-      try {
-        await this.calculateScore(userId, phoneNumber, true);
-        recalculated++;
-      } catch (error) {
-        this.logger.error(
-          `Failed to recalculate score for ${phoneNumber}: ${error}`,
-        );
-      }
+    if (jobs.length > 0) {
+      await this.leadsQueue.addBulk(jobs);
     }
 
-    return { recalculated, total: phoneNumbers.length };
+    return { enqueued: jobs.length, total: phoneNumbers.length };
   }
 
   // ==================== Score Calculation ====================
@@ -379,7 +392,13 @@ export class LeadsService {
           userId,
           phoneNumber: normalizedPhone,
           score: LeadScoreLevel.COLD,
-          scoreBreakdown: { keyword: 0, responseTime: 0, engagement: 0, recency: 0, total: 0 },
+          scoreBreakdown: {
+            keyword: 0,
+            responseTime: 0,
+            engagement: 0,
+            recency: 0,
+            total: 0,
+          },
           factors: [],
           totalMessages: 0,
           incomingMessages: 0,
@@ -476,7 +495,9 @@ export class LeadsService {
       });
     }
 
-    breakdown.keyword = Math.round(keywordScore * (settings.keywordWeight / 100));
+    breakdown.keyword = Math.round(
+      keywordScore * (settings.keywordWeight / 100),
+    );
 
     // 2. Response Time Score
     if (settings.responseTimeEnabled && avgResponseTimeMinutes !== null) {
@@ -637,7 +658,11 @@ export class LeadsService {
     if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);
     }
-    if (cleaned.startsWith('62') && cleaned.length > 13 && cleaned.endsWith('0')) {
+    if (
+      cleaned.startsWith('62') &&
+      cleaned.length > 13 &&
+      cleaned.endsWith('0')
+    ) {
       cleaned = cleaned.slice(0, -1);
     }
     return cleaned;

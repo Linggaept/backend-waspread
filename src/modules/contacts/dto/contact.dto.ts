@@ -5,6 +5,10 @@ import {
   IsBoolean,
   IsEmail,
   MinLength,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
   Allow,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
@@ -243,6 +247,7 @@ export class ContactQueryDto {
     default: 20,
   })
   @IsOptional()
-  @Transform(({ value }) => Math.min(parseInt(value) || 20, 5000))
+  @Transform(({ value }) => Math.min(parseInt(value) || 20, 100))
+  @Max(100)
   limit?: number;
 }

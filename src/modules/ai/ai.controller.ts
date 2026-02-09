@@ -13,6 +13,7 @@ import {
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -236,6 +237,7 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
       },
     },
   })
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   async importKnowledgeFileAi(
     @CurrentUser('id') userId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -361,6 +363,7 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     },
   })
   @ApiResponse({ status: 400, description: 'AI disabled or error' })
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   generateSuggestions(
     @CurrentUser('id') userId: string,
     @Body() dto: SuggestRequestDto,

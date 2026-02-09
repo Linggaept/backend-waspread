@@ -108,9 +108,9 @@ export class ReportsController {
     @CurrentUser('id') userId: string,
     @Res() res: Response,
   ) {
-    const csv = await this.reportsService.exportAllBlastsToCsv(userId);
+    const stream = await this.reportsService.exportAllBlastsToStream(userId);
     res.setHeader('Content-Disposition', 'attachment; filename=all-blasts.csv');
-    res.send(csv);
+    stream.pipe(res);
   }
 
   @Get('admin/dashboard')

@@ -47,7 +47,7 @@ export class ChatHistoryQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(100)
   limit?: number = 50;
 }
 
