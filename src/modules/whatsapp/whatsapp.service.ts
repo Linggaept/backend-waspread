@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -344,28 +349,22 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             reason,
           });
 
-          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
-          if (
-            !this.manualDisconnectUsers.has(userId) &&
-            (
-              reason === 'Logged out' ||
-              reason === 'Session logged out' ||
-              reason === 'Connection replaced by another session'
-            )
-          ) {
+          // Auto-reconnect for ALL disconnects EXCEPT manual disconnect
+          if (!this.manualDisconnectUsers.has(userId)) {
             this.logger.log(
-              `Session expired/logged out for user ${userId}. Auto-reconnecting in 3s...`,
+              `Session disconnected for user ${userId} (reason: ${reason}). Auto-reconnecting in 5s...`,
             );
             setTimeout(() => {
               this.initializeSession(userId).catch((e) =>
                 this.logger.error(
-                  `Auto-reconnect failed for user ${userId}`,
-                  e,
+                  `Auto-reconnect failed for user ${userId}: ${e}`,
                 ),
               );
-            }, 3000);
-          } else if (this.manualDisconnectUsers.has(userId)) {
-            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            }, 5000);
+          } else {
+            this.logger.log(
+              `Manual disconnect for user ${userId}, skipping auto-reconnect`,
+            );
             this.manualDisconnectUsers.delete(userId);
           }
         },
@@ -562,30 +561,24 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             reason,
           });
 
-          // Auto-reconnect if session expired/logged out (but NOT if manual disconnect)
-          if (
-            !this.manualDisconnectUsers.has(userId) &&
-            (
-              reason === 'Logged out' ||
-              reason === 'Session logged out' ||
-              reason === 'Connection replaced by another session'
-            )
-          ) {
+          // Auto-reconnect for ALL disconnects EXCEPT manual disconnect
+          if (!this.manualDisconnectUsers.has(userId)) {
             this.logger.log(
-              `Session expired/logged out for user ${userId}. Auto-reconnecting (pairing) in 3s...`,
+              `Session disconnected for user ${userId} (reason: ${reason}). Auto-reconnecting in 5s...`,
             );
             setTimeout(() => {
               // Re-initialize with pairing if phone number is available
               this.initializeSessionWithPairing(userId, phoneNumber).catch(
                 (e) =>
                   this.logger.error(
-                    `Auto-reconnect (pairing) failed for user ${userId}`,
-                    e,
+                    `Auto-reconnect failed for user ${userId}: ${e}`,
                   ),
               );
-            }, 3000);
-          } else if (this.manualDisconnectUsers.has(userId)) {
-            this.logger.log(`Manual disconnect for user ${userId}, skipping auto-reconnect`);
+            }, 5000);
+          } else {
+            this.logger.log(
+              `Manual disconnect for user ${userId}, skipping auto-reconnect`,
+            );
             this.manualDisconnectUsers.delete(userId);
           }
         },
@@ -843,10 +836,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   // Cache for resolved phone numbers (Baileys JID → canonical phone)
   private phoneResolveCache: Map<string, string> = new Map();
 
-  async resolvePhoneNumber(
-    userId: string,
-    phone: string,
-  ): Promise<string> {
+  async resolvePhoneNumber(userId: string, phone: string): Promise<string> {
     let cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('0')) {
       cleaned = '62' + cleaned.substring(1);

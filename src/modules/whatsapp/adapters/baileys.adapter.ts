@@ -195,25 +195,24 @@ export class BaileysAdapter implements IWhatsAppClientAdapter {
         const reason = this.getDisconnectReason(statusCode);
 
         if (statusCode === DisconnectReason.loggedOut) {
+          // Logged out intentionally - clean up and don't reconnect
           this.cleanupAuthState();
           config.onAuthFailure('Session logged out');
           config.onDisconnected(reason);
-        } else if (
-          statusCode === DisconnectReason.restartRequired ||
-          statusCode === DisconnectReason.badSession ||
-          statusCode === 405
-        ) {
+        } else {
+          // ALL other disconnects (connection terminated, restart required,
+          // bad session, timeout, etc.) → auto-reconnect
+          const delay =
+            statusCode === DisconnectReason.restartRequired ? 1000 : 3000;
           this.logger.warn(
-            `Reconnecting due to: ${reason} (code: ${statusCode})`,
+            `Connection closed: ${reason} (code: ${statusCode}). Auto-reconnecting in ${delay}ms...`,
           );
           setTimeout(() => {
             this.initialize(config).catch((err) => {
               this.logger.error(`Reconnection failed: ${err}`);
               config.onDisconnected(`Reconnection failed: ${err}`);
             });
-          }, 2000);
-        } else {
-          config.onDisconnected(reason);
+          }, delay);
         }
       }
     });
