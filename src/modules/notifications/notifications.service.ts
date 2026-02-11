@@ -357,7 +357,7 @@ export class NotificationsService {
    */
   async notifyWelcome(
     userId: string,
-    email: string,
+    _email: string,
     name?: string,
   ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.WELCOME, { name });
@@ -367,14 +367,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data: { name },
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email,
+      channels: [NotificationChannel.IN_APP],
     });
   }
 
   async notifySubscriptionActivated(
     userId: string,
-    email: string,
+    _email: string,
     packageName: string,
     quota: number,
     expiredAt: string,
@@ -390,18 +389,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [
-        NotificationChannel.IN_APP,
-        NotificationChannel.EMAIL,
-        NotificationChannel.WEBSOCKET,
-      ],
-      email,
+      channels: [NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
     });
   }
 
   async notifySubscriptionExpiring(
     userId: string,
-    email: string,
+    _email: string,
     daysLeft: number,
   ): Promise<Notification> {
     const data = { daysLeft };
@@ -415,14 +409,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email,
+      channels: [NotificationChannel.IN_APP],
     });
   }
 
   async notifySubscriptionExpired(
     userId: string,
-    email: string,
+    _email: string,
   ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.SUBSCRIPTION_EXPIRED);
     return this.notify({
@@ -430,12 +423,7 @@ export class NotificationsService {
       type: NotificationType.SUBSCRIPTION_EXPIRED,
       title: template.title,
       message: template.message,
-      channels: [
-        NotificationChannel.IN_APP,
-        NotificationChannel.EMAIL,
-        NotificationChannel.WEBSOCKET,
-      ],
-      email,
+      channels: [NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
     });
   }
 
@@ -458,7 +446,7 @@ export class NotificationsService {
 
   async notifyQuotaDepleted(
     userId: string,
-    email: string,
+    _email: string,
   ): Promise<Notification> {
     const template = this.getTemplate(NotificationType.QUOTA_DEPLETED);
     return this.notify({
@@ -466,18 +454,13 @@ export class NotificationsService {
       type: NotificationType.QUOTA_DEPLETED,
       title: template.title,
       message: template.message,
-      channels: [
-        NotificationChannel.IN_APP,
-        NotificationChannel.EMAIL,
-        NotificationChannel.WEBSOCKET,
-      ],
-      email,
+      channels: [NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
     });
   }
 
   async notifyPaymentSuccess(
     userId: string,
-    email: string,
+    _email: string,
     packageName: string,
     amount: number,
   ): Promise<Notification> {
@@ -489,18 +472,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [
-        NotificationChannel.IN_APP,
-        NotificationChannel.EMAIL,
-        NotificationChannel.WEBSOCKET,
-      ],
-      email,
+      channels: [NotificationChannel.IN_APP, NotificationChannel.WEBSOCKET],
     });
   }
 
   async notifyPaymentFailed(
     userId: string,
-    email: string,
+    _email: string,
     packageName: string,
   ): Promise<Notification> {
     const data = { packageName };
@@ -511,14 +489,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email,
+      channels: [NotificationChannel.IN_APP],
     });
   }
 
   async notifyBlastCompleted(
     userId: string,
-    email: string,
+    _email: string,
     blastName: string,
     sent: number,
     failed: number,
@@ -532,14 +509,13 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email,
+      channels: [NotificationChannel.IN_APP],
     });
   }
 
   async notifyBlastFailed(
     userId: string,
-    email: string,
+    _email: string,
     blastName: string,
     reason?: string,
   ): Promise<Notification> {
@@ -551,8 +527,7 @@ export class NotificationsService {
       title: template.title,
       message: template.message,
       data,
-      channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-      email,
+      channels: [NotificationChannel.IN_APP],
     });
   }
 
