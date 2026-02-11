@@ -24,6 +24,8 @@ import {
   MessageReportDto,
   AdminUserReportDto,
   RevenueReportDto,
+  ExportQueryDto,
+  ExportFormat,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -149,5 +151,43 @@ export class ReportsController {
       dateRange.startDate,
       dateRange.endDate,
     );
+  }
+
+  @Get('admin/export')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Export database table',
+    description: 'Export a specific table to CSV or JSON format. Available tables: users, subscriptions, payments, blasts, contacts, packages',
+  })
+  @ApiResponse({ status: 200, description: 'File download' })
+  async exportTable(@Query() query: ExportQueryDto, @Res() res: Response) {
+    const { data, filename, contentType } = await this.reportsService.exportTable(
+      query.table,
+      query.format || ExportFormat.CSV,
+      query.startDate,
+      query.endDate,
+    );
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(data);
+  }
+
+  @Get('admin/export/all')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Export all database tables',
+    description: 'Export all tables as a single JSON file for backup purposes',
+  })
+  @ApiResponse({ status: 200, description: 'JSON file download' })
+  async exportAllTables(@Res() res: Response) {
+    const { data, filename, contentType } =
+      await this.reportsService.exportAllTables();
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(data);
   }
 }

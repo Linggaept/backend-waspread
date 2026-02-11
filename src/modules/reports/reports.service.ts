@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Readable } from 'stream';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
@@ -10,6 +10,8 @@ import {
 import { Payment, PaymentStatus } from '../../database/entities/payment.entity';
 import { Subscription } from '../../database/entities/subscription.entity';
 import { User } from '../../database/entities/user.entity';
+import { Contact } from '../../database/entities/contact.entity';
+import { Package } from '../../database/entities/package.entity';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import {
   DashboardStatsDto,
@@ -17,6 +19,8 @@ import {
   MessageReportDto,
   AdminUserReportDto,
   RevenueReportDto,
+  ExportTable,
+  ExportFormat,
 } from './dto';
 
 @Injectable()
@@ -32,6 +36,10 @@ export class ReportsService {
     private readonly subscriptionRepository: Repository<Subscription>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Contact)
+    private readonly contactRepository: Repository<Contact>,
+    @InjectRepository(Package)
+    private readonly packageRepository: Repository<Package>,
     private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
@@ -444,5 +452,273 @@ export class ReportsService {
       todayBlasts,
       todayMessages,
     };
+  }
+
+  // ==================== Database Export (Admin) ====================
+
+  async exportTable(
+    table: ExportTable,
+    format: ExportFormat = ExportFormat.CSV,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<{ data: string; filename: string; contentType: string }> {
+    let data: any[];
+    let headers: string[];
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    // Build date filter
+    const dateFilter = this.buildDateFilter(startDate, endDate);
+
+    switch (table) {
+      case ExportTable.USERS:
+        data = await this.exportUsers(dateFilter);
+        headers = ['ID', 'Email', 'Name', 'Phone', 'Role', 'Status', 'Created At'];
+        break;
+
+      case ExportTable.SUBSCRIPTIONS:
+        data = await this.exportSubscriptions(dateFilter);
+        headers = [
+          'ID', 'User Email', 'Package', 'Status', 'Start Date', 'End Date',
+          'Used Blast Quota', 'Used AI Quota', 'Created At',
+        ];
+        break;
+
+      case ExportTable.PAYMENTS:
+        data = await this.exportPayments(dateFilter);
+        headers = [
+          'ID', 'Order ID', 'User Email', 'Package', 'Amount', 'Status',
+          'Payment Type', 'Transaction ID', 'Paid At', 'Created At',
+        ];
+        break;
+
+      case ExportTable.BLASTS:
+        data = await this.exportBlasts(dateFilter);
+        headers = [
+          'ID', 'User Email', 'Name', 'Status', 'Total Recipients',
+          'Sent Count', 'Failed Count', 'Started At', 'Completed At', 'Created At',
+        ];
+        break;
+
+      case ExportTable.CONTACTS:
+        data = await this.exportContacts(dateFilter);
+        headers = [
+          'ID', 'User Email', 'Phone Number', 'Name', 'Email', 'Notes',
+          'Tags', 'Source', 'Is WA Contact', 'Is Active', 'Created At',
+        ];
+        break;
+
+      case ExportTable.PACKAGES:
+        data = await this.exportPackages();
+        headers = [
+          'ID', 'Name', 'Description', 'Price', 'Duration Days',
+          'Blast Monthly Quota', 'Blast Daily Limit', 'AI Quota',
+          'Is Active', 'Is Purchasable', 'Has Analytics', 'Has AI Features',
+          'Has Lead Scoring', 'Has Followup Feature', 'Created At',
+        ];
+        break;
+
+      default:
+        throw new BadRequestException(`Unknown table: ${table}`);
+    }
+
+    const filename = `${table}-export-${timestamp}`;
+
+    if (format === ExportFormat.JSON) {
+      return {
+        data: JSON.stringify(data, null, 2),
+        filename: `${filename}.json`,
+        contentType: 'application/json',
+      };
+    }
+
+    // CSV format
+    const csvContent = this.convertToCsv(headers, data);
+    return {
+      data: csvContent,
+      filename: `${filename}.csv`,
+      contentType: 'text/csv',
+    };
+  }
+
+  async exportAllTables(): Promise<{
+    data: string;
+    filename: string;
+    contentType: string;
+  }> {
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      users: await this.exportUsers({}),
+      packages: await this.exportPackages(),
+      subscriptions: await this.exportSubscriptions({}),
+      payments: await this.exportPayments({}),
+      blasts: await this.exportBlasts({}),
+      contacts: await this.exportContacts({}),
+    };
+
+    return {
+      data: JSON.stringify(exportData, null, 2),
+      filename: `full-database-export-${timestamp}.json`,
+      contentType: 'application/json',
+    };
+  }
+
+  private buildDateFilter(
+    startDate?: string,
+    endDate?: string,
+  ): Record<string, unknown> {
+    if (startDate && endDate) {
+      return { createdAt: Between(new Date(startDate), new Date(endDate)) };
+    } else if (startDate) {
+      return { createdAt: MoreThanOrEqual(new Date(startDate)) };
+    } else if (endDate) {
+      return { createdAt: LessThanOrEqual(new Date(endDate)) };
+    }
+    return {};
+  }
+
+  private async exportUsers(dateFilter: Record<string, unknown>): Promise<any[]> {
+    const users = await this.userRepository.find({
+      where: dateFilter,
+      order: { createdAt: 'DESC' },
+    });
+
+    return users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name || '',
+      phone: u.phone || '',
+      role: u.role,
+      status: u.status,
+      createdAt: u.createdAt.toISOString(),
+    }));
+  }
+
+  private async exportSubscriptions(dateFilter: Record<string, unknown>): Promise<any[]> {
+    const subscriptions = await this.subscriptionRepository.find({
+      where: dateFilter,
+      relations: ['user', 'package'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return subscriptions.map((s) => ({
+      id: s.id,
+      userEmail: s.user?.email || '',
+      package: s.package?.name || '',
+      status: s.status,
+      startDate: s.startDate?.toISOString().split('T')[0] || '',
+      endDate: s.endDate?.toISOString().split('T')[0] || '',
+      usedBlastQuota: s.usedBlastQuota,
+      usedAiQuota: s.usedAiQuota,
+      createdAt: s.createdAt.toISOString(),
+    }));
+  }
+
+  private async exportPayments(dateFilter: Record<string, unknown>): Promise<any[]> {
+    const payments = await this.paymentRepository.find({
+      where: dateFilter,
+      relations: ['user', 'package'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return payments.map((p) => ({
+      id: p.id,
+      orderId: p.orderId,
+      userEmail: p.user?.email || '',
+      package: p.package?.name || '',
+      amount: Number(p.amount),
+      status: p.status,
+      paymentType: p.paymentType || '',
+      transactionId: p.transactionId || '',
+      paidAt: p.paidAt?.toISOString() || '',
+      createdAt: p.createdAt.toISOString(),
+    }));
+  }
+
+  private async exportBlasts(dateFilter: Record<string, unknown>): Promise<any[]> {
+    const blasts = await this.blastRepository.find({
+      where: dateFilter,
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return blasts.map((b) => ({
+      id: b.id,
+      userEmail: b.user?.email || '',
+      name: b.name,
+      status: b.status,
+      totalRecipients: b.totalRecipients,
+      sentCount: b.sentCount,
+      failedCount: b.failedCount,
+      startedAt: b.startedAt?.toISOString() || '',
+      completedAt: b.completedAt?.toISOString() || '',
+      createdAt: b.createdAt.toISOString(),
+    }));
+  }
+
+  private async exportContacts(dateFilter: Record<string, unknown>): Promise<any[]> {
+    const contacts = await this.contactRepository.find({
+      where: dateFilter,
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return contacts.map((c) => ({
+      id: c.id,
+      userEmail: c.user?.email || '',
+      phoneNumber: c.phoneNumber,
+      name: c.name || '',
+      email: c.email || '',
+      notes: c.notes || '',
+      tags: c.tags?.join(', ') || '',
+      source: c.source,
+      isWaContact: c.isWaContact,
+      isActive: c.isActive,
+      createdAt: c.createdAt.toISOString(),
+    }));
+  }
+
+  private async exportPackages(): Promise<any[]> {
+    const packages = await this.packageRepository.find({
+      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+    });
+
+    return packages.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description || '',
+      price: Number(p.price),
+      durationDays: p.durationDays,
+      blastMonthlyQuota: p.blastMonthlyQuota,
+      blastDailyLimit: p.blastDailyLimit,
+      aiQuota: p.aiQuota,
+      isActive: p.isActive,
+      isPurchasable: p.isPurchasable,
+      hasAnalytics: p.hasAnalytics,
+      hasAiFeatures: p.hasAiFeatures,
+      hasLeadScoring: p.hasLeadScoring,
+      hasFollowupFeature: p.hasFollowupFeature,
+      createdAt: p.createdAt.toISOString(),
+    }));
+  }
+
+  private convertToCsv(headers: string[], data: any[]): string {
+    const escapeCell = (cell: any): string => {
+      if (cell === null || cell === undefined) return '';
+      const str = String(cell);
+      // Escape double quotes and wrap in quotes if contains comma, newline, or quote
+      if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const headerRow = headers.map(escapeCell).join(',');
+    const dataRows = data.map((row) =>
+      Object.values(row).map(escapeCell).join(','),
+    );
+
+    return [headerRow, ...dataRows].join('\n');
   }
 }

@@ -1,5 +1,19 @@
-import { IsOptional, IsDateString } from 'class-validator';
+import { IsOptional, IsDateString, IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export enum ExportTable {
+  USERS = 'users',
+  SUBSCRIPTIONS = 'subscriptions',
+  PAYMENTS = 'payments',
+  BLASTS = 'blasts',
+  CONTACTS = 'contacts',
+  PACKAGES = 'packages',
+}
+
+export enum ExportFormat {
+  CSV = 'csv',
+  JSON = 'json',
+}
 
 export class DateRangeDto {
   @ApiPropertyOptional({
@@ -175,4 +189,40 @@ export class RevenueReportDto {
   @ApiProperty() totalRevenue: number;
   @ApiProperty({ type: [PackageBreakdownDto] })
   packageBreakdown: PackageBreakdownDto[];
+}
+
+export class ExportQueryDto {
+  @ApiProperty({
+    enum: ExportTable,
+    example: ExportTable.USERS,
+    description: 'Table to export',
+  })
+  @IsEnum(ExportTable)
+  table: ExportTable;
+
+  @ApiPropertyOptional({
+    enum: ExportFormat,
+    example: ExportFormat.CSV,
+    description: 'Export format (default: csv)',
+    default: ExportFormat.CSV,
+  })
+  @IsEnum(ExportFormat)
+  @IsOptional()
+  format?: ExportFormat = ExportFormat.CSV;
+
+  @ApiPropertyOptional({
+    example: '2026-01-01',
+    description: 'Start date filter (ISO8601)',
+  })
+  @IsDateString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-01-31',
+    description: 'End date filter (ISO8601)',
+  })
+  @IsDateString()
+  @IsOptional()
+  endDate?: string;
 }

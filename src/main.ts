@@ -76,11 +76,12 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api');
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('WhatsApp Blasting SaaS API')
-    .setDescription(
-      `
+  // Swagger documentation - only in non-production
+  if (nodeEnv !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('WhatsApp Blasting SaaS API')
+      .setDescription(
+        `
 ## WhatsApp Blasting SaaS Backend API
 
 A complete API for managing WhatsApp message blasting with subscription-based pricing.
@@ -91,7 +92,7 @@ A complete API for managing WhatsApp message blasting with subscription-based pr
 - 💳 **Payments** - Midtrans payment integration
 - 📱 **WhatsApp** - Session management with QR code login
 - 📨 **Blasts** - Bulk message sending with queue processing
-- 📊 **Reports** - Dashboard statistics and CSV exports
+- 📊 **Reports** - Dashboard and reporting
 - ❤️ **Health** - System health monitoring
 
 ### Authentication
@@ -99,41 +100,42 @@ Most endpoints require JWT authentication. Use the \`/api/auth/login\` endpoint 
 \`\`\`
 Authorization: Bearer <your-token>
 \`\`\`
-    `,
-    )
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'Authorization',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .addTag('Auth', 'Authentication endpoints')
-    .addTag('Users', 'User management (Admin)')
-    .addTag('Packages', 'Subscription packages')
-    .addTag('Payments', 'Payment processing with Midtrans')
-    .addTag('Subscriptions', 'User subscription management')
-    .addTag('WhatsApp', 'WhatsApp session management')
-    .addTag('Blasts', 'Message blasting campaigns')
-    .addTag('Reports', 'Dashboard and reporting')
-    .addTag('Health', 'System health checks')
-    .build();
+      `,
+      )
+      .setVersion('1.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'Authorization',
+          description: 'Enter JWT token',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .addTag('Auth', 'Authentication endpoints')
+      .addTag('Users', 'User management (Admin)')
+      .addTag('Packages', 'Subscription packages')
+      .addTag('Payments', 'Payment processing with Midtrans')
+      .addTag('Subscriptions', 'User subscription management')
+      .addTag('WhatsApp', 'WhatsApp session management')
+      .addTag('Blasts', 'Message blasting campaigns')
+      .addTag('Reports', 'Dashboard and reporting')
+      .addTag('Health', 'System health checks')
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'none',
-      filter: true,
-      showRequestDuration: true,
-    },
-    customSiteTitle: 'WhatsApp Blasting API Docs',
-  });
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'none',
+        filter: true,
+        showRequestDuration: true,
+      },
+      customSiteTitle: 'WhatsApp Blasting API Docs',
+    });
+  }
 
   // Shutdown hooks
   app.enableShutdownHooks();
@@ -143,7 +145,9 @@ Authorization: Bearer <your-token>
   const logger = new Logger('Bootstrap');
   logger.log(`🚀 Application is running on: http://localhost:${port}/api`);
   logger.log(`📝 Environment: ${nodeEnv}`);
-  logger.log(`📚 API Docs: http://localhost:${port}/docs`);
+  if (nodeEnv !== 'production') {
+    logger.log(`📚 API Docs: http://localhost:${port}/docs`);
+  }
   logger.log(`❤️  Health check: http://localhost:${port}/api/health`);
 }
 bootstrap();

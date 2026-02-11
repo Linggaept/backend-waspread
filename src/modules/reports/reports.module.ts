@@ -6,6 +6,8 @@ import { Blast, BlastMessage } from '../../database/entities/blast.entity';
 import { Payment } from '../../database/entities/payment.entity';
 import { Subscription } from '../../database/entities/subscription.entity';
 import { User } from '../../database/entities/user.entity';
+import { Contact } from '../../database/entities/contact.entity';
+import { Package } from '../../database/entities/package.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
@@ -16,6 +18,8 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
       Payment,
       Subscription,
       User,
+      Contact,
+      Package,
     ]),
     SubscriptionsModule,
   ],
