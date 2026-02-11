@@ -442,4 +442,70 @@ export class WhatsAppGateway
   ) {
     this.server.to(`user:${userId}`).emit('notification:read', data);
   }
+
+  // ==================== Dashboard Events ====================
+
+  // Send dashboard stats update to user
+  sendDashboardUpdate(
+    userId: string,
+    stats: {
+      blastQuota?: {
+        monthlyUsed: number;
+        monthlyRemaining: number;
+        dailyUsed: number;
+        dailyRemaining: number;
+      };
+      aiQuota?: {
+        used: number;
+        remaining: number;
+      };
+      blasts?: {
+        total: number;
+        completed: number;
+        processing: number;
+        pending: number;
+      };
+      messages?: {
+        totalSent: number;
+        totalFailed: number;
+        successRate: number;
+      };
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('dashboard:update', stats);
+    this.logger.debug(`Dashboard update sent to user ${userId}`);
+  }
+
+  // Send quota update (lightweight, just quota info)
+  sendQuotaUpdate(
+    userId: string,
+    data: {
+      blastQuota: {
+        monthlyUsed: number;
+        monthlyRemaining: number;
+        dailyUsed: number;
+        dailyRemaining: number;
+        isUnlimited: boolean;
+      };
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('quota:update', data);
+    this.logger.debug(`Quota update sent to user ${userId}`);
+  }
+
+  // Send AI quota update
+  sendAiQuotaUpdate(
+    userId: string,
+    data: {
+      aiQuota: {
+        limit: number;
+        used: number;
+        remaining: number;
+        isUnlimited: boolean;
+      };
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('aiQuota:update', data);
+    this.logger.debug(`AI quota update sent to user ${userId}`);
+  }
 }

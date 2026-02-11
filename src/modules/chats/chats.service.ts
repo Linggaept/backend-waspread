@@ -255,9 +255,7 @@ export class ChatsService implements OnModuleInit {
     });
 
     try {
-      const saved = (await this.chatMessageRepository.save(
-        chatMessage,
-      )) as ChatMessage;
+      const saved = await this.chatMessageRepository.save(chatMessage);
 
       if (direction === ChatMessageDirection.INCOMING) {
         this.logger.log(
@@ -657,9 +655,7 @@ export class ChatsService implements OnModuleInit {
       isRead: true,
     });
 
-    const saved = (await this.chatMessageRepository.save(
-      chatMessage,
-    )) as ChatMessage;
+    const saved = await this.chatMessageRepository.save(chatMessage);
 
     // Sync conversation to materialized view
     if (sessionPhoneNumber) {
@@ -727,9 +723,7 @@ export class ChatsService implements OnModuleInit {
       isRead: true,
     });
 
-    const saved = (await this.chatMessageRepository.save(
-      chatMessage,
-    )) as ChatMessage;
+    const saved = await this.chatMessageRepository.save(chatMessage);
 
     // Sync conversation to materialized view
     if (sessionPhoneNumber) {

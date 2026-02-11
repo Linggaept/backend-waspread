@@ -34,18 +34,55 @@ export class PackagesService implements OnModuleInit {
         description: 'Paket uji coba gratis untuk pengguna baru',
         price: 0,
         durationDays: 3,
-        monthlyQuota: 50,
-        dailyLimit: 20,
+        // Blast quota (recipients)
+        blastMonthlyQuota: 50, // Max 50 recipients per month
+        blastDailyLimit: 20, // Max 20 recipients per day
         isActive: true,
         isPurchasable: false, // Free Trial tampil tapi tidak bisa dibeli
         sortOrder: 0,
+        // AI quota
+        aiQuota: 10, // Limited AI quota for trial
+        // Feature flags
+        hasAnalytics: false, // No analytics in free
+        hasAiFeatures: true, // Allow AI with quota
+        hasLeadScoring: false, // No lead scoring in free
       });
       await this.packageRepository.save(pkg);
-    } else if (existing.isPurchasable !== false) {
-      // Update existing Free Trial to be non-purchasable
-      existing.isPurchasable = false;
-      await this.packageRepository.save(existing);
-      this.logger.log('Updated Free Trial package to non-purchasable');
+    } else {
+      // Update existing Free Trial with new feature flags if not set
+      let needsUpdate = false;
+
+      if (existing.isPurchasable !== false) {
+        existing.isPurchasable = false;
+        needsUpdate = true;
+      }
+
+      // Update feature flags if they have default values (meaning not yet configured)
+      if (existing.aiQuota === 0) {
+        existing.aiQuota = 10;
+        needsUpdate = true;
+      }
+      if (existing.hasAnalytics === true) {
+        existing.hasAnalytics = false;
+        needsUpdate = true;
+      }
+      if (existing.hasLeadScoring === true) {
+        existing.hasLeadScoring = false;
+        needsUpdate = true;
+      }
+      if (existing.blastDailyLimit === 0) {
+        existing.blastDailyLimit = 2;
+        needsUpdate = true;
+      }
+      if (existing.blastMonthlyQuota === 0) {
+        existing.blastMonthlyQuota = 10;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await this.packageRepository.save(existing);
+        this.logger.log('Updated Free Trial package with feature flags');
+      }
     }
   }
 

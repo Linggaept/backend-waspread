@@ -60,15 +60,29 @@ export class BlastsService {
       );
     }
 
+    // Check blast limit
+    const blastLimitCheck =
+      await this.subscriptionsService.checkBlastLimit(userId);
+    if (!blastLimitCheck.canCreate) {
+      throw new ForbiddenException(
+        blastLimitCheck.message || 'Daily blast limit exceeded',
+      );
+    }
+
     const phoneNumbers = createBlastDto.phoneNumbers || [];
     const recipientCount = phoneNumbers.length;
-    if (quotaCheck.remainingQuota < recipientCount) {
+
+    // -1 indicates unlimited quota
+    const isMonthlyUnlimited = quotaCheck.remainingQuota === -1;
+    const isDailyUnlimited = quotaCheck.remainingDaily === -1;
+
+    if (!isMonthlyUnlimited && quotaCheck.remainingQuota < recipientCount) {
       throw new ForbiddenException(
         `Insufficient quota. Required: ${recipientCount}, Available: ${quotaCheck.remainingQuota}`,
       );
     }
 
-    if (quotaCheck.remainingDaily < recipientCount) {
+    if (!isDailyUnlimited && quotaCheck.remainingDaily < recipientCount) {
       throw new ForbiddenException(
         `Daily limit exceeded. Required: ${recipientCount}, Remaining today: ${quotaCheck.remainingDaily}`,
       );
@@ -150,6 +164,9 @@ export class BlastsService {
 
     // Use quota
     await this.subscriptionsService.useQuota(userId, blast.totalRecipients);
+
+    // Use blast limit
+    await this.subscriptionsService.useBlastLimit(userId);
 
     // Update blast status
     await this.blastRepository.update(blastId, {

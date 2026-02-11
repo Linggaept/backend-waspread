@@ -57,10 +57,15 @@ npm run docker:logs             # Follow logs
 - `mail/` - Email service using Nodemailer with Handlebars templates
 - `notifications/` - In-app notifications with WebSocket delivery and email integration
 - `health/` - System health endpoints
+- `leads/` - Lead scoring system with BullMQ queue processing (`leads.processor.ts`)
+- `analytics/` - Conversation funnel tracking, analytics snapshots, and closing insights
+- `products/` - Product catalog management
+- `settings/` - User settings management
 
 **Infrastructure** (`src/`):
-- `queue/queue.module.ts` - BullMQ/Redis connection setup
+- `queue/queue.module.ts` - BullMQ/Redis connection setup (queues: `blast`, `leads`)
 - `config/` - Environment configuration loaders and validation
+- `database/data-source.ts` - TypeORM data source for migrations
 
 **Core Entities** (`src/database/entities/`):
 - User, Package, Payment, Subscription, WhatsAppSession, Contact, Template, PasswordReset, AuditLog, Notification
@@ -69,6 +74,14 @@ npm run docker:logs             # Follow logs
 - ChatMessage - Full conversation history with direction (incoming/outgoing), optional blast linking, read status
 - AiSettings - Per-user AI configuration (tone, business context, enabled state)
 - AiKnowledgeBase - User's knowledge entries for AI context (categories: product, faq, promo, policy, custom)
+- LeadScore - Lead scoring per phone number (hot/warm/cold), tracks keyword matches, response time, engagement
+- LeadScoreSettings - Configurable scoring thresholds per user
+- ConversationFunnel - Tracks leads through stages: blast_sent → delivered → replied → interested → negotiating → closed_won/lost
+- AnalyticsSnapshot - Periodic analytics snapshots for trend tracking
+- Product - Product catalog entries for users
+- ChatConversation - Denormalized conversation summaries for fast list rendering
+- PinnedConversation - User-pinned conversations
+- UserSettings - Per-user preferences
 
 **Database Indexes** (important for query performance):
 - `blast_messages`: [blastId, status]
@@ -77,6 +90,8 @@ npm run docker:logs             # Follow logs
 - `notifications`: [userId, isRead], [userId, createdAt]
 - `chat_messages`: [userId, phoneNumber, timestamp], [userId, phoneNumber], [userId, timestamp], unique on [whatsappMessageId] where not null
 - `ai_knowledge_base`: [userId, isActive], [userId, category]
+- `lead_scores`: [userId, score], [userId, lastInteraction]
+- `conversation_funnels`: [userId, currentStage], [userId, blastId], unique on [userId, phoneNumber]
 
 **Shared Infrastructure** (`src/common/`):
 - `filters/global-exception.filter.ts` - Standardized error responses
@@ -137,6 +152,18 @@ npm run docker:logs             # Follow logs
 - Bulk import knowledge via Excel/CSV (columns: title, content, category, keywords)
 - Returns 3 suggested replies per request
 
+**Lead Scoring**:
+- Automatic scoring based on keyword matches (configurable per user), response time, engagement, and recency
+- Three levels: HOT, WARM, COLD with configurable thresholds
+- Processed via BullMQ queue (`leads` queue) for async calculation
+- Manual override supported with reason tracking
+
+**Conversation Funnel Tracking**:
+- Stages: BLAST_SENT → DELIVERED → REPLIED → INTERESTED → NEGOTIATING → CLOSED_WON/CLOSED_LOST
+- Auto-progression via keyword detection (e.g., "beli", "order" → INTERESTED)
+- Deal value tracking for closed deals
+- AI-powered closing insights with success/failure factors
+
 **API Response Format**:
 All responses wrapped via `TransformInterceptor` using `ApiResponse<T>`:
 ```json
@@ -161,7 +188,11 @@ Environment variables configured via `.env` (see `.env.example`):
 - `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
 - `GEMINI_API_KEY` - Google Gemini API key for AI copywriting (feature disabled if not set)
-- `GEMINI_MODEL` - Gemini model name (default: `gemini-2.0-flash`)
+- `GEMINI_MODEL` - Gemini model name (default: `gemini-2.5-flash`)
+- `WA_SYNC_FULL_HISTORY` - Sync all WhatsApp history (default: false, WARNING: high memory)
+- `WA_SYNC_HISTORY_DAYS` - Days of history to sync (default: 7)
+- `CHAT_MESSAGE_RETENTION_DAYS` - Auto-delete old messages (default: 30, 0 to disable)
+- `CHAT_CLEANUP_INTERVAL_HOURS` - Cleanup job interval (default: 24)
 
 **API Endpoints:**
 - API Base: `http://localhost:{PORT}/api`

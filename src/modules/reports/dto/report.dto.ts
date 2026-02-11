@@ -19,17 +19,113 @@ export class DateRangeDto {
   endDate?: string;
 }
 
+// Subscription & Package Info
+class SubscriptionInfoDto {
+  @ApiProperty({ example: true }) active: boolean;
+  @ApiPropertyOptional({ example: 'Pro Plan' }) packageName?: string;
+  @ApiPropertyOptional({ example: '2026-02-28' }) expiresAt?: string;
+  @ApiPropertyOptional({ example: 15 }) daysRemaining?: number;
+}
+
+// Blast Quota (recipients that can receive blast messages)
+class BlastQuotaDto {
+  @ApiProperty({
+    example: 5000,
+    description: 'Total blast recipients allowed per month (0 = unlimited)',
+  })
+  monthlyLimit: number;
+
+  @ApiProperty({ example: 1250, description: 'Recipients blasted this month' })
+  monthlyUsed: number;
+
+  @ApiProperty({
+    example: 3750,
+    description: 'Remaining recipients this month (-1 = unlimited)',
+  })
+  monthlyRemaining: number;
+
+  @ApiProperty({
+    example: 500,
+    description: 'Max blast recipients per day (0 = unlimited)',
+  })
+  dailyLimit: number;
+
+  @ApiProperty({ example: 120, description: 'Recipients blasted today' })
+  dailyUsed: number;
+
+  @ApiProperty({
+    example: 380,
+    description: 'Remaining recipients today (-1 = unlimited)',
+  })
+  dailyRemaining: number;
+
+  @ApiProperty({ example: false }) isUnlimited: boolean;
+}
+
+// AI Quota
+class AiQuotaDto {
+  @ApiProperty({ example: 100, description: 'Total AI quota (0 = unlimited)' })
+  limit: number;
+
+  @ApiProperty({ example: 25, description: 'Used AI calls' })
+  used: number;
+
+  @ApiProperty({
+    example: 75,
+    description: 'Remaining AI calls (-1 = unlimited)',
+  })
+  remaining: number;
+
+  @ApiProperty({ example: false }) isUnlimited: boolean;
+}
+
+// Feature Flags
+class FeatureFlagsDto {
+  @ApiProperty({ example: true }) hasAnalytics: boolean;
+  @ApiProperty({ example: true }) hasAiFeatures: boolean;
+  @ApiProperty({ example: true }) hasLeadScoring: boolean;
+}
+
+// Blast Statistics
+class BlastStatsDto {
+  @ApiProperty({ example: 10 }) total: number;
+  @ApiProperty({ example: 8 }) completed: number;
+  @ApiProperty({ example: 1 }) processing: number;
+  @ApiProperty({ example: 1 }) cancelled: number;
+  @ApiProperty({ example: 0 }) pending: number;
+}
+
+// Message Statistics
+class MessageStatsDto {
+  @ApiProperty({ example: 5000 }) totalSent: number;
+  @ApiProperty({ example: 150 }) totalFailed: number;
+  @ApiProperty({ example: 97.09 }) successRate: number;
+}
+
 export class DashboardStatsDto {
-  @ApiProperty() totalBlasts: number;
-  @ApiProperty() completedBlasts: number;
-  @ApiProperty() processingBlasts: number;
-  @ApiProperty() cancelledBlasts: number;
-  @ApiProperty() totalMessagesSent: number;
-  @ApiProperty() totalMessagesFailed: number;
-  @ApiProperty() successRate: number;
-  @ApiProperty() quotaUsed: number;
-  @ApiProperty() quotaRemaining: number;
-  @ApiProperty() activeSubscription: boolean;
+  // Subscription Info
+  @ApiProperty({ type: SubscriptionInfoDto })
+  subscription: SubscriptionInfoDto;
+
+  // Blast Quota (recipients)
+  @ApiProperty({ type: BlastQuotaDto })
+  blastQuota: BlastQuotaDto;
+
+  // AI Quota
+  @ApiProperty({ type: AiQuotaDto })
+  aiQuota: AiQuotaDto;
+
+  // Feature Flags
+  @ApiProperty({ type: FeatureFlagsDto })
+  features: FeatureFlagsDto;
+
+  // Blast Statistics
+  @ApiProperty({ type: BlastStatsDto })
+  blasts: BlastStatsDto;
+
+  // Message Statistics
+  @ApiProperty({ type: MessageStatsDto })
+  messages: MessageStatsDto;
 }
 
 export class BlastReportDto {

@@ -7,16 +7,24 @@ import {
 } from '@nestjs/swagger';
 import { CopywritingService } from './copywriting.service';
 import { GenerateCopyDto, GenerateCopyResponseDto } from './dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireFeature } from '../auth/decorators/feature.decorator';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 @ApiTags('Copywriting')
 @ApiBearerAuth('JWT-auth')
 @Controller('copywriting')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FeatureGuard)
+@RequireFeature('ai')
 export class CopywritingController {
-  constructor(private readonly copywritingService: CopywritingService) {}
+  constructor(
+    private readonly copywritingService: CopywritingService,
+    private readonly subscriptionsService: SubscriptionsService,
+  ) {}
 
   @Post('generate')
+  @UseGuards(AiQuotaGuard)
   @ApiOperation({
     summary: 'Generate WhatsApp marketing copy with AI',
     description:
@@ -32,7 +40,17 @@ export class CopywritingController {
     description: 'Gemini not configured or generation failed',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  generate(@Body() dto: GenerateCopyDto): Promise<GenerateCopyResponseDto> {
-    return this.copywritingService.generateCopy(dto);
+  @ApiResponse({
+    status: 403,
+    description: 'AI feature not available or quota exceeded',
+  })
+  async generate(
+    @CurrentUser('id') userId: string,
+    @Body() dto: GenerateCopyDto,
+  ): Promise<GenerateCopyResponseDto> {
+    const result = await this.copywritingService.generateCopy(dto);
+    // Use 1 AI quota per generation
+    await this.subscriptionsService.useAiQuota(userId, 1);
+    return result;
   }
 }

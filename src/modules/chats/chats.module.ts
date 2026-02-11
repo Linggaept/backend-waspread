@@ -63,12 +63,17 @@ export class ChatsModule implements OnModuleInit {
       handleMessageUpsert: async (userId, message) => {
         await this.chatsService.handleMessageUpsert(userId, message);
 
-        const phoneNumber = message.from?.replace(/@(c\.us|s\.whatsapp\.net)$/, '');
+        const phoneNumber = message.from?.replace(
+          /@(c\.us|s\.whatsapp\.net)$/,
+          '',
+        );
         if (phoneNumber) {
           // Trigger lead score update (fire and forget)
-          this.leadsService.handleNewMessage(userId, phoneNumber).catch((err) => {
-            this.logger.error(`Failed to update lead score: ${err}`);
-          });
+          this.leadsService
+            .handleNewMessage(userId, phoneNumber)
+            .catch((err) => {
+              this.logger.error(`Failed to update lead score: ${err}`);
+            });
 
           // Trigger funnel tracking for incoming messages (fire and forget)
           if (!message.fromMe && message.body) {
@@ -83,8 +88,18 @@ export class ChatsModule implements OnModuleInit {
     });
 
     this.whatsAppService.setMessageStatusHandler({
-      handleMessageStatusUpdate: async (userId, messageId, phoneNumber, status) => {
-        await this.chatsService.handleMessageStatusUpdate(userId, messageId, phoneNumber, status);
+      handleMessageStatusUpdate: async (
+        userId,
+        messageId,
+        phoneNumber,
+        status,
+      ) => {
+        await this.chatsService.handleMessageStatusUpdate(
+          userId,
+          messageId,
+          phoneNumber,
+          status,
+        );
 
         // Update funnel on delivery (fire and forget)
         if (status === 'delivered' && phoneNumber) {

@@ -22,7 +22,8 @@ export class CreateKnowledgeDto {
   title: string;
 
   @ApiProperty({
-    example: 'Paket Premium seharga Rp 199.000/bulan. Fitur: unlimited blast, priority support, analytics dashboard.',
+    example:
+      'Paket Premium seharga Rp 199.000/bulan. Fitur: unlimited blast, priority support, analytics dashboard.',
   })
   @IsString()
   content: string;

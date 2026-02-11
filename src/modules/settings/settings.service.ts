@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { UserSettings, ThemeMode } from '../../database/entities/user-settings.entity';
+import {
+  UserSettings,
+  ThemeMode,
+} from '../../database/entities/user-settings.entity';
 import { UpdateSettingsDto } from './dto';
 
 @Injectable()
@@ -59,8 +62,10 @@ export class SettingsService {
     } else {
       // Update existing
       if (dto.theme !== undefined) settings.theme = dto.theme;
-      if (dto.notificationSound !== undefined) settings.notificationSound = dto.notificationSound;
-      if (dto.notificationDesktop !== undefined) settings.notificationDesktop = dto.notificationDesktop;
+      if (dto.notificationSound !== undefined)
+        settings.notificationSound = dto.notificationSound;
+      if (dto.notificationDesktop !== undefined)
+        settings.notificationDesktop = dto.notificationDesktop;
       if (dto.language !== undefined) settings.language = dto.language;
     }
 

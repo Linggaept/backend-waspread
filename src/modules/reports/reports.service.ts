@@ -36,6 +36,7 @@ export class ReportsService {
   ) {}
 
   async getDashboardStats(userId: string): Promise<DashboardStatsDto> {
+    // Get blast statistics
     const blasts = await this.blastRepository.find({ where: { userId } });
 
     const totalBlasts = blasts.length;
@@ -47,6 +48,9 @@ export class ReportsService {
     ).length;
     const cancelledBlasts = blasts.filter(
       (b) => b.status === BlastStatus.CANCELLED,
+    ).length;
+    const pendingBlasts = blasts.filter(
+      (b) => b.status === BlastStatus.PENDING,
     ).length;
     const totalMessagesSent = blasts.reduce((sum, b) => sum + b.sentCount, 0);
     const totalMessagesFailed = blasts.reduce(
@@ -61,18 +65,72 @@ export class ReportsService {
     const subscription =
       await this.subscriptionsService.getActiveSubscription(userId);
     const quotaCheck = await this.subscriptionsService.checkQuota(userId);
+    const aiQuotaCheck = await this.subscriptionsService.checkAiQuota(userId);
+
+    const pkg = subscription?.package;
+
+    // Calculate days remaining
+    let daysRemaining: number | undefined;
+    if (subscription?.endDate) {
+      const now = new Date();
+      const end = new Date(subscription.endDate);
+      daysRemaining = Math.max(
+        0,
+        Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+      );
+    }
 
     return {
-      totalBlasts,
-      completedBlasts,
-      processingBlasts,
-      cancelledBlasts,
-      totalMessagesSent,
-      totalMessagesFailed,
-      successRate: Math.round(successRate * 100) / 100,
-      quotaUsed: subscription?.usedQuota || 0,
-      quotaRemaining: quotaCheck.remainingQuota,
-      activeSubscription: quotaCheck.hasSubscription,
+      // Subscription Info
+      subscription: {
+        active: quotaCheck.hasSubscription,
+        packageName: pkg?.name,
+        expiresAt: subscription?.endDate?.toISOString().split('T')[0],
+        daysRemaining,
+      },
+
+      // Blast Quota (recipients)
+      blastQuota: {
+        monthlyLimit: pkg?.blastMonthlyQuota || 0,
+        monthlyUsed: subscription?.usedBlastQuota || 0,
+        monthlyRemaining: quotaCheck.remainingQuota,
+        dailyLimit: pkg?.blastDailyLimit || 0,
+        dailyUsed: subscription?.todayBlastUsed || 0,
+        dailyRemaining: quotaCheck.remainingDaily,
+        isUnlimited:
+          pkg?.blastMonthlyQuota === 0 && pkg?.blastDailyLimit === 0,
+      },
+
+      // AI Quota
+      aiQuota: {
+        limit: pkg?.aiQuota || 0,
+        used: subscription?.usedAiQuota || 0,
+        remaining: aiQuotaCheck.remaining,
+        isUnlimited: pkg?.aiQuota === 0,
+      },
+
+      // Feature Flags
+      features: {
+        hasAnalytics: pkg?.hasAnalytics ?? false,
+        hasAiFeatures: pkg?.hasAiFeatures ?? false,
+        hasLeadScoring: pkg?.hasLeadScoring ?? false,
+      },
+
+      // Blast Statistics
+      blasts: {
+        total: totalBlasts,
+        completed: completedBlasts,
+        processing: processingBlasts,
+        cancelled: cancelledBlasts,
+        pending: pendingBlasts,
+      },
+
+      // Message Statistics
+      messages: {
+        totalSent: totalMessagesSent,
+        totalFailed: totalMessagesFailed,
+        successRate: Math.round(successRate * 100) / 100,
+      },
     };
   }
 

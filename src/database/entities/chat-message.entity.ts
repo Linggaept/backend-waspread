@@ -16,12 +16,12 @@ export enum ChatMessageDirection {
 }
 
 export enum ChatMessageStatus {
-  PENDING = 'pending',      // ⏳ Sending...
-  SENT = 'sent',            // ✓ (1 check) - Sent to server
-  DELIVERED = 'delivered',  // ✓✓ (2 checks gray) - Delivered to device
-  READ = 'read',            // ✓✓ (2 checks blue) - Read by recipient
-  RECEIVED = 'received',    // For incoming messages
-  FAILED = 'failed',        // ✗ Failed to send
+  PENDING = 'pending', // ⏳ Sending...
+  SENT = 'sent', // ✓ (1 check) - Sent to server
+  DELIVERED = 'delivered', // ✓✓ (2 checks gray) - Delivered to device
+  READ = 'read', // ✓✓ (2 checks blue) - Read by recipient
+  RECEIVED = 'received', // For incoming messages
+  FAILED = 'failed', // ✗ Failed to send
 }
 
 @Entity('chat_messages')
@@ -32,7 +32,10 @@ export enum ChatMessageStatus {
 @Index(['userId', 'phoneNumber'])
 @Index(['userId', 'timestamp'])
 @Index(['userId', 'sessionPhoneNumber', 'phoneNumber', 'direction', 'isRead']) // Optimize unread counts
-@Index(['whatsappMessageId'], { unique: true, where: '"whatsappMessageId" IS NOT NULL' })
+@Index(['whatsappMessageId'], {
+  unique: true,
+  where: '"whatsappMessageId" IS NOT NULL',
+})
 export class ChatMessage {
   @PrimaryGeneratedColumn('uuid')
   id: string;

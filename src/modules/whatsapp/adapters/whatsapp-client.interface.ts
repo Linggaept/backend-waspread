@@ -78,8 +78,10 @@ export interface IWhatsAppClientAdapter {
   getContactByPhone(phoneNumber: string): Promise<ContactInfo | null>;
 
   revokeMessage(chatId: string, messageId: string): Promise<void>;
-  
-  markMessagesAsRead(keys: { remoteJid: string; id: string; fromMe: boolean }[]): Promise<void>;
+
+  markMessagesAsRead(
+    keys: { remoteJid: string; id: string; fromMe: boolean }[],
+  ): Promise<void>;
 
   requestPairingCode(phoneNumber: string): Promise<string>;
 }

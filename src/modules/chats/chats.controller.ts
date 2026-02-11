@@ -14,7 +14,14 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as express from 'express';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -43,7 +50,10 @@ export class ChatsController {
   /**
    * Helper to set X-Session-Phone-Number response header
    */
-  private async setSessionHeader(res: express.Response, userId: string): Promise<void> {
+  private async setSessionHeader(
+    res: express.Response,
+    userId: string,
+  ): Promise<void> {
     const session = await this.whatsAppService.getSessionStatus(userId);
     if (session?.phoneNumber) {
       res.setHeader('X-Session-Phone-Number', session.phoneNumber);
@@ -135,7 +145,10 @@ export class ChatsController {
     },
   })
   @ApiResponse({ status: 201, description: 'Media message sent' })
-  @ApiResponse({ status: 400, description: 'Invalid file or session not connected' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid file or session not connected',
+  })
   async sendMedia(
     @CurrentUser('id') userId: string,
     @Body('phoneNumber') phoneNumber: string,
@@ -212,7 +225,8 @@ export class ChatsController {
   @Post('messages/:messageId/retract')
   @ApiOperation({
     summary: 'Retract a message (delete for everyone on WhatsApp)',
-    description: 'Only works for outgoing messages that have a WhatsApp message ID',
+    description:
+      'Only works for outgoing messages that have a WhatsApp message ID',
   })
   @ApiResponse({ status: 200, description: 'Message retracted' })
   @ApiResponse({ status: 400, description: 'Cannot retract this message' })
@@ -258,7 +272,8 @@ export class ChatsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Get message retention statistics (Admin only)',
-    description: 'Returns stats about message retention policy and cleanup status',
+    description:
+      'Returns stats about message retention policy and cleanup status',
   })
   @ApiResponse({
     status: 200,

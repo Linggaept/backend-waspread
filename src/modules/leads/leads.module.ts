@@ -8,17 +8,20 @@ import { ChatMessage } from '../../database/entities/chat-message.entity';
 import { LeadsService } from './leads.service';
 import { LeadsController } from './leads.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { FeatureGuard } from '../auth/guards';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([LeadScore, LeadScoreSettings, ChatMessage]),
     forwardRef(() => WhatsAppModule),
+    SubscriptionsModule,
     BullModule.registerQueue({
       name: 'leads',
     }),
   ],
   controllers: [LeadsController],
-  providers: [LeadsService, LeadsProcessor],
+  providers: [LeadsService, LeadsProcessor, FeatureGuard],
   exports: [LeadsService],
 })
 export class LeadsModule {}

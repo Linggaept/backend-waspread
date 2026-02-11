@@ -181,8 +181,16 @@ export class ClosingInsightService {
     totalAnalyzed: number;
     closedWon: number;
     closedLost: number;
-    topSuccessFactors: Array<{ factor: string; frequency: number; percentage: number }>;
-    topFailureFactors: Array<{ factor: string; frequency: number; percentage: number }>;
+    topSuccessFactors: Array<{
+      factor: string;
+      frequency: number;
+      percentage: number;
+    }>;
+    topFailureFactors: Array<{
+      factor: string;
+      frequency: number;
+      percentage: number;
+    }>;
     recommendations: string[];
     avgTimeToClose: string;
   }> {
@@ -191,7 +199,9 @@ export class ClosingInsightService {
       .createQueryBuilder('funnel')
       .where('funnel.userId = :userId', { userId })
       .andWhere('funnel.isAnalyzed = true')
-      .andWhere('funnel.closedAt >= :startDate', { startDate: period.startDate })
+      .andWhere('funnel.closedAt >= :startDate', {
+        startDate: period.startDate,
+      })
       .andWhere('funnel.closedAt <= :endDate', { endDate: period.endDate })
       .getMany();
 
@@ -231,9 +241,10 @@ export class ClosingInsightService {
       .map(([factor, frequency]) => ({
         factor,
         frequency,
-        percentage: closedWon.length > 0
-          ? Math.round((frequency / closedWon.length) * 100)
-          : 0,
+        percentage:
+          closedWon.length > 0
+            ? Math.round((frequency / closedWon.length) * 100)
+            : 0,
       }));
 
     const topFailureFactors = Object.entries(failureFactorCounts)
@@ -242,9 +253,10 @@ export class ClosingInsightService {
       .map(([factor, frequency]) => ({
         factor,
         frequency,
-        percentage: closedLost.length > 0
-          ? Math.round((frequency / closedLost.length) * 100)
-          : 0,
+        percentage:
+          closedLost.length > 0
+            ? Math.round((frequency / closedLost.length) * 100)
+            : 0,
       }));
 
     // Calculate average time to close
@@ -252,13 +264,11 @@ export class ClosingInsightService {
     let countWithTime = 0;
     for (const funnel of closedWon) {
       if (funnel.blastSentAt && funnel.closedAt) {
-        const timeMs =
-          funnel.closedAt.getTime() - funnel.blastSentAt.getTime();
+        const timeMs = funnel.closedAt.getTime() - funnel.blastSentAt.getTime();
         avgTimeMinutes += timeMs / (1000 * 60);
         countWithTime++;
       } else if (funnel.repliedAt && funnel.closedAt) {
-        const timeMs =
-          funnel.closedAt.getTime() - funnel.repliedAt.getTime();
+        const timeMs = funnel.closedAt.getTime() - funnel.repliedAt.getTime();
         avgTimeMinutes += timeMs / (1000 * 60);
         countWithTime++;
       }
@@ -360,7 +370,9 @@ ${historyText}
 
 Berikan analisis dalam format JSON berikut:
 
-${isWon ? `
+${
+  isWon
+    ? `
 {
   "summary": "Ringkasan singkat kenapa berhasil closing (1-2 kalimat)",
   "successFactors": [
@@ -381,7 +393,8 @@ ${isWon ? `
   ],
   "recommendations": ["saran untuk replika keberhasilan ini"],
   "sentiment": "positive/neutral/negative"
-}` : `
+}`
+    : `
 {
   "summary": "Ringkasan singkat kenapa gagal closing (1-2 kalimat)",
   "failureFactors": [
@@ -399,7 +412,8 @@ ${isWon ? `
   "sentiment": "positive/neutral/negative",
   "recoveryChance": "high/medium/low",
   "recoverySuggestion": "saran untuk recovery customer ini"
-}`}
+}`
+}
 
 PENTING:
 - Berikan analisis yang actionable dan spesifik
@@ -409,7 +423,10 @@ PENTING:
     return prompt;
   }
 
-  private parseInsightResponse(response: string, stage: FunnelStage): AiInsight {
+  private parseInsightResponse(
+    response: string,
+    stage: FunnelStage,
+  ): AiInsight {
     try {
       // Clean response
       let cleaned = response.trim();
@@ -427,10 +444,11 @@ PENTING:
         failureFactors: parsed.failureFactors || undefined,
         improvementAreas: parsed.improvementAreas || undefined,
         missedOpportunities: parsed.missedOpportunities || undefined,
-        keyMoments: parsed.keyMoments?.map((km: any) => ({
-          timestamp: new Date(),
-          event: km.event,
-        })) || undefined,
+        keyMoments:
+          parsed.keyMoments?.map((km: any) => ({
+            timestamp: new Date(),
+            event: km.event,
+          })) || undefined,
         recommendations: parsed.recommendations || undefined,
         sentiment: parsed.sentiment || 'neutral',
         recoveryChance: parsed.recoveryChance || undefined,

@@ -15,8 +15,9 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard, FeatureGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireFeature } from '../auth/decorators/feature.decorator';
 import { LeadsService } from './leads.service';
 import { UpdateLeadScoreSettingsDto } from './dto/settings.dto';
 import {
@@ -28,7 +29,8 @@ import {
 
 @ApiTags('Leads')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FeatureGuard)
+@RequireFeature('leadScoring')
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}

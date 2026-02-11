@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -59,8 +60,8 @@ export class SubscriptionsService {
       paymentId: paymentId ?? undefined,
       startDate,
       endDate,
-      usedQuota: 0,
-      todayUsed: 0,
+      usedBlastQuota: 0,
+      todayBlastUsed: 0,
       status: SubscriptionStatus.ACTIVE,
     });
 
@@ -77,7 +78,7 @@ export class SubscriptionsService {
           userId,
           user.email,
           pkg.name,
-          pkg.monthlyQuota,
+          pkg.blastMonthlyQuota,
           endDate.toLocaleDateString('id-ID'),
         )
         .catch((err) =>
@@ -157,19 +158,29 @@ export class SubscriptionsService {
 
     const pkg = subscription.package;
     const today = new Date().toISOString().split('T')[0];
-    const lastUsed = this.getDateString(subscription.lastUsedDate);
+    const lastUsed = this.getDateString(subscription.lastBlastDate);
 
     // Reset daily counter if new day
     if (lastUsed !== today) {
-      subscription.todayUsed = 0;
-      subscription.lastUsedDate = new Date();
+      subscription.todayBlastUsed = 0;
+      subscription.lastBlastDate = new Date();
       await this.subscriptionRepository.save(subscription);
     }
 
-    const remainingQuota = pkg.monthlyQuota - subscription.usedQuota;
-    const remainingDaily = pkg.dailyLimit - subscription.todayUsed;
+    // 0 = unlimited
+    const isMonthlyUnlimited = pkg.blastMonthlyQuota === 0;
+    const isDailyUnlimited = pkg.blastDailyLimit === 0;
 
-    const canSend = remainingQuota > 0 && remainingDaily > 0;
+    const remainingQuota = isMonthlyUnlimited
+      ? -1 // -1 indicates unlimited
+      : pkg.blastMonthlyQuota - subscription.usedBlastQuota;
+    const remainingDaily = isDailyUnlimited
+      ? -1 // -1 indicates unlimited
+      : pkg.blastDailyLimit - subscription.todayBlastUsed;
+
+    const canSendMonthly = isMonthlyUnlimited || remainingQuota > 0;
+    const canSendDaily = isDailyUnlimited || remainingDaily > 0;
+    const canSend = canSendMonthly && canSendDaily;
 
     return {
       hasSubscription: true,
@@ -188,27 +199,54 @@ export class SubscriptionsService {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const lastUsed = this.getDateString(subscription.lastUsedDate);
+    const lastUsed = this.getDateString(subscription.lastBlastDate);
 
     // Reset daily counter if new day
     if (lastUsed !== today) {
-      subscription.todayUsed = 0;
-      subscription.lastUsedDate = new Date();
+      subscription.todayBlastUsed = 0;
+      subscription.lastBlastDate = new Date();
     }
 
-    subscription.usedQuota += count;
-    subscription.todayUsed += count;
+    subscription.usedBlastQuota += count;
+    subscription.todayBlastUsed += count;
     await this.subscriptionRepository.save(subscription);
 
-    // Check and send quota warning
     const pkg = subscription.package;
-    const remainingQuota = pkg.monthlyQuota - subscription.usedQuota;
-    const percentageRemaining = (remainingQuota / pkg.monthlyQuota) * 100;
+
+    // Calculate remaining (handle unlimited)
+    const isMonthlyUnlimited = pkg.blastMonthlyQuota === 0;
+    const isDailyUnlimited = pkg.blastDailyLimit === 0;
+
+    const monthlyRemaining = isMonthlyUnlimited
+      ? -1
+      : pkg.blastMonthlyQuota - subscription.usedBlastQuota;
+    const dailyRemaining = isDailyUnlimited
+      ? -1
+      : pkg.blastDailyLimit - subscription.todayBlastUsed;
+
+    // Send realtime quota update
+    this.whatsappGateway.sendQuotaUpdate(userId, {
+      blastQuota: {
+        monthlyUsed: subscription.usedBlastQuota,
+        monthlyRemaining,
+        dailyUsed: subscription.todayBlastUsed,
+        dailyRemaining,
+        isUnlimited: isMonthlyUnlimited && isDailyUnlimited,
+      },
+    });
+
+    // Skip warnings if unlimited
+    if (isMonthlyUnlimited) {
+      return;
+    }
+
+    const remainingQuota = pkg.blastMonthlyQuota - subscription.usedBlastQuota;
+    const percentageRemaining = (remainingQuota / pkg.blastMonthlyQuota) * 100;
 
     if (remainingQuota <= 0) {
       this.whatsappGateway.sendQuotaWarning(userId, {
         remaining: 0,
-        limit: pkg.monthlyQuota,
+        limit: pkg.blastMonthlyQuota,
         warningType: 'depleted',
       });
       // Send in-app + email notification for depleted quota
@@ -226,18 +264,18 @@ export class SubscriptionsService {
     } else if (percentageRemaining <= 5) {
       this.whatsappGateway.sendQuotaWarning(userId, {
         remaining: remainingQuota,
-        limit: pkg.monthlyQuota,
+        limit: pkg.blastMonthlyQuota,
         warningType: 'critical',
       });
     } else if (percentageRemaining <= 20) {
       this.whatsappGateway.sendQuotaWarning(userId, {
         remaining: remainingQuota,
-        limit: pkg.monthlyQuota,
+        limit: pkg.blastMonthlyQuota,
         warningType: 'low',
       });
       // Send in-app notification for low quota (20%)
       this.notificationsService
-        .notifyQuotaLow(userId, remainingQuota, pkg.monthlyQuota)
+        .notifyQuotaLow(userId, remainingQuota, pkg.blastMonthlyQuota)
         .catch((err) =>
           this.logger.error('Failed to send quota low notification:', err),
         );
@@ -320,5 +358,237 @@ export class SubscriptionsService {
     }
 
     return result.affected || 0;
+  }
+
+  // ==================== Feature Access ====================
+
+  async checkFeatureAccess(
+    userId: string,
+    feature: 'analytics' | 'ai' | 'leadScoring',
+  ): Promise<{ hasAccess: boolean; message?: string }> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      return { hasAccess: false, message: 'No active subscription' };
+    }
+
+    const pkg = subscription.package;
+    let hasAccess = false;
+
+    switch (feature) {
+      case 'analytics':
+        hasAccess = pkg.hasAnalytics;
+        break;
+      case 'ai':
+        hasAccess = pkg.hasAiFeatures;
+        break;
+      case 'leadScoring':
+        hasAccess = pkg.hasLeadScoring;
+        break;
+    }
+
+    if (!hasAccess) {
+      return {
+        hasAccess: false,
+        message: `Feature '${feature}' is not available in your current package`,
+      };
+    }
+
+    return { hasAccess: true };
+  }
+
+  // ==================== AI Quota ====================
+
+  async checkAiQuota(userId: string): Promise<{
+    hasAccess: boolean;
+    remaining: number;
+    limit: number;
+    message?: string;
+  }> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      return {
+        hasAccess: false,
+        remaining: 0,
+        limit: 0,
+        message: 'No active subscription',
+      };
+    }
+
+    const pkg = subscription.package;
+
+    // Check if AI features are enabled
+    if (!pkg.hasAiFeatures) {
+      return {
+        hasAccess: false,
+        remaining: 0,
+        limit: 0,
+        message: 'AI features are not available in your current package',
+      };
+    }
+
+    // 0 = unlimited
+    if (pkg.aiQuota === 0) {
+      return {
+        hasAccess: true,
+        remaining: -1, // -1 indicates unlimited
+        limit: 0,
+      };
+    }
+
+    const remaining = pkg.aiQuota - subscription.usedAiQuota;
+    const hasAccess = remaining > 0;
+
+    return {
+      hasAccess,
+      remaining,
+      limit: pkg.aiQuota,
+      message: hasAccess ? undefined : 'AI quota exceeded',
+    };
+  }
+
+  async useAiQuota(userId: string, count: number = 1): Promise<void> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      throw new BadRequestException('No active subscription');
+    }
+
+    const pkg = subscription.package;
+
+    // Check if AI features are enabled
+    if (!pkg.hasAiFeatures) {
+      throw new ForbiddenException(
+        'AI features are not available in your current package',
+      );
+    }
+
+    // 0 = unlimited, no need to track but still send update
+    if (pkg.aiQuota === 0) {
+      // Send realtime update for unlimited
+      this.whatsappGateway.sendAiQuotaUpdate(userId, {
+        aiQuota: {
+          limit: 0,
+          used: subscription.usedAiQuota,
+          remaining: -1,
+          isUnlimited: true,
+        },
+      });
+      return;
+    }
+
+    subscription.usedAiQuota += count;
+    await this.subscriptionRepository.save(subscription);
+
+    const remaining = pkg.aiQuota - subscription.usedAiQuota;
+
+    // Send realtime AI quota update
+    this.whatsappGateway.sendAiQuotaUpdate(userId, {
+      aiQuota: {
+        limit: pkg.aiQuota,
+        used: subscription.usedAiQuota,
+        remaining,
+        isUnlimited: false,
+      },
+    });
+
+    // Check and send warning if quota is low
+    const percentageRemaining = (remaining / pkg.aiQuota) * 100;
+
+    if (remaining <= 0) {
+      this.whatsappGateway.sendQuotaWarning(userId, {
+        remaining: 0,
+        limit: pkg.aiQuota,
+        warningType: 'depleted',
+      });
+    } else if (percentageRemaining <= 20) {
+      this.whatsappGateway.sendQuotaWarning(userId, {
+        remaining,
+        limit: pkg.aiQuota,
+        warningType: 'low',
+      });
+    }
+  }
+
+  // ==================== Blast Limit ====================
+
+  async checkBlastLimit(userId: string): Promise<{
+    canCreate: boolean;
+    todayUsed: number;
+    dailyLimit: number;
+    monthlyUsed: number;
+    monthlyLimit: number;
+    message?: string;
+  }> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      return {
+        canCreate: false,
+        todayUsed: 0,
+        dailyLimit: 0,
+        monthlyUsed: 0,
+        monthlyLimit: 0,
+        message: 'No active subscription',
+      };
+    }
+
+    const pkg = subscription.package;
+    const today = new Date().toISOString().split('T')[0];
+    const lastBlast = this.getDateString(subscription.lastBlastDate);
+
+    // Reset daily counter if new day
+    if (lastBlast !== today) {
+      subscription.todayBlastUsed = 0;
+      await this.subscriptionRepository.save(subscription);
+    }
+
+    const dailyLimitOk =
+      pkg.blastDailyLimit === 0 ||
+      subscription.todayBlastUsed < pkg.blastDailyLimit;
+    const monthlyLimitOk =
+      pkg.blastMonthlyQuota === 0 ||
+      subscription.usedBlastQuota < pkg.blastMonthlyQuota;
+
+    const canCreate = dailyLimitOk && monthlyLimitOk;
+
+    let message: string | undefined;
+    if (!dailyLimitOk) {
+      message = `Daily blast limit exceeded. Limit: ${pkg.blastDailyLimit}/day`;
+    } else if (!monthlyLimitOk) {
+      message = `Monthly blast limit exceeded. Limit: ${pkg.blastMonthlyQuota}/month`;
+    }
+
+    return {
+      canCreate,
+      todayUsed: subscription.todayBlastUsed,
+      dailyLimit: pkg.blastDailyLimit,
+      monthlyUsed: subscription.usedBlastQuota,
+      monthlyLimit: pkg.blastMonthlyQuota,
+      message,
+    };
+  }
+
+  async useBlastLimit(userId: string): Promise<void> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      throw new BadRequestException('No active subscription');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const lastBlast = this.getDateString(subscription.lastBlastDate);
+
+    // Reset daily counter if new day
+    if (lastBlast !== today) {
+      subscription.todayBlastUsed = 0;
+      subscription.lastBlastDate = new Date();
+    }
+
+    subscription.todayBlastUsed += 1;
+    subscription.usedBlastQuota += 1;
+    subscription.lastBlastDate = new Date();
+    await this.subscriptionRepository.save(subscription);
   }
 }

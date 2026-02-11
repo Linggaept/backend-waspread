@@ -23,11 +23,12 @@ export class Package {
   @Column({ default: 30 })
   durationDays: number;
 
+  // Blast Quota (recipients that can receive blast messages)
   @Column({ default: 1000 })
-  monthlyQuota: number;
+  blastMonthlyQuota: number;
 
   @Column({ default: 100 })
-  dailyLimit: number;
+  blastDailyLimit: number;
 
   @Column({ default: true })
   isActive: boolean;
@@ -35,8 +36,32 @@ export class Package {
   @Column({ default: true })
   isPurchasable: boolean;
 
+  @Column({ default: false })
+  isPopular: boolean;
+
+  @Column({ default: false })
+  isDiscount: boolean;
+
+  // Original price before discount (null if no discount)
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  originalPrice: number;
+
   @Column({ default: 0 })
   sortOrder: number;
+
+  // AI Quota (0 = unlimited)
+  @Column({ default: 0 })
+  aiQuota: number;
+
+  // Feature Flags
+  @Column({ default: true })
+  hasAnalytics: boolean;
+
+  @Column({ default: true })
+  hasAiFeatures: boolean;
+
+  @Column({ default: true })
+  hasLeadScoring: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

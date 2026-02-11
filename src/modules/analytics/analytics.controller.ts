@@ -17,11 +17,13 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireFeature } from '../auth/decorators/feature.decorator';
 import { AnalyticsService } from './services/analytics.service';
 import { FunnelTrackerService } from './services/funnel-tracker.service';
 import { ClosingInsightService } from './services/closing-insight.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import {
   AnalyticsQueryDto,
   FunnelQueryDto,
@@ -32,13 +34,15 @@ import {
 
 @ApiTags('Analytics')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FeatureGuard)
+@RequireFeature('analytics')
 @Controller('analytics')
 export class AnalyticsController {
   constructor(
     private readonly analyticsService: AnalyticsService,
     private readonly funnelTrackerService: FunnelTrackerService,
     private readonly closingInsightService: ClosingInsightService,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
   // ==================== Overview ====================
@@ -221,6 +225,7 @@ export class AnalyticsController {
   }
 
   @Post('insights/:phoneNumber/analyze')
+  @UseGuards(AiQuotaGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   @ApiOperation({ summary: 'Force AI analysis for a conversation' })
   @ApiParam({
@@ -228,11 +233,20 @@ export class AnalyticsController {
     description: 'Phone number (e.g., 628123456789)',
   })
   @ApiResponse({ status: 201, description: 'Analysis completed' })
+  @ApiResponse({ status: 403, description: 'AI quota exceeded' })
   async analyzeConversation(
     @CurrentUser('id') userId: string,
     @Param('phoneNumber') phoneNumber: string,
   ) {
-    return this.closingInsightService.reanalyze(userId, phoneNumber);
+    const result = await this.closingInsightService.reanalyze(
+      userId,
+      phoneNumber,
+    );
+
+    // Deduct AI quota after successful analysis
+    await this.subscriptionsService.useAiQuota(userId, 1);
+
+    return result;
   }
 
   // ==================== Helper ====================

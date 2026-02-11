@@ -653,7 +653,8 @@ export class ContactsService {
 
             // Update name if not set
             if (!existing.name && (contactData.name || contactData.pushname)) {
-              existing.name = contactData.name || contactData.pushname || undefined;
+              existing.name =
+                contactData.name || contactData.pushname || undefined;
             }
 
             // Add source tag

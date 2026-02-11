@@ -8,10 +8,13 @@ import { AiService } from './ai.service';
 import { AiKnowledgeBase } from '../../database/entities/ai-knowledge-base.entity';
 import { AiSettings } from '../../database/entities/ai-settings.entity';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { FeatureGuard, AiQuotaGuard } from '../auth/guards';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([AiKnowledgeBase, AiSettings, ChatMessage]),
+    SubscriptionsModule,
     MulterModule.register({
       storage: diskStorage({
         destination: path.join(process.cwd(), 'uploads', 'temp'),
@@ -27,7 +30,7 @@ import { ChatMessage } from '../../database/entities/chat-message.entity';
     }),
   ],
   controllers: [AiController],
-  providers: [AiService],
+  providers: [AiService, FeatureGuard, AiQuotaGuard],
   exports: [AiService],
 })
 export class AiModule {}

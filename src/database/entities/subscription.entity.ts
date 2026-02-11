@@ -49,14 +49,19 @@ export class Subscription {
   @Column()
   endDate: Date;
 
+  // Blast Quota Tracking (recipients)
   @Column({ default: 0 })
-  usedQuota: number;
+  usedBlastQuota: number;
 
   @Column({ default: 0 })
-  todayUsed: number;
+  todayBlastUsed: number;
 
   @Column({ type: 'date', nullable: true })
-  lastUsedDate: Date;
+  lastBlastDate: Date;
+
+  // AI Quota Tracking
+  @Column({ default: 0 })
+  usedAiQuota: number;
 
   @Column({
     type: 'enum',

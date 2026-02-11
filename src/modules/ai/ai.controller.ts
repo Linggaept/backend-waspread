@@ -23,9 +23,11 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireFeature } from '../auth/decorators/feature.decorator';
 import { AiService } from './ai.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import {
   CreateKnowledgeDto,
   UpdateKnowledgeDto,
@@ -37,10 +39,14 @@ import {
 
 @ApiTags('AI Smart Reply')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FeatureGuard)
+@RequireFeature('ai')
 @Controller('ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly subscriptionsService: SubscriptionsService,
+  ) {}
 
   // ==================== KNOWLEDGE BASE ====================
 
@@ -192,11 +198,12 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
   }
 
   @Post('knowledge/import-file-ai')
+  @UseGuards(AiQuotaGuard)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Import knowledge base from PDF/Image using AI',
     description: `Upload PDF or Image file. Gemini AI will analyze and extract knowledge items automatically.
-    
+
     **Supported formats:** .pdf, .jpg, .jpeg, .png, .webp
     `,
   })
@@ -237,6 +244,7 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
       },
     },
   })
+  @ApiResponse({ status: 403, description: 'AI quota exceeded' })
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   async importKnowledgeFileAi(
     @CurrentUser('id') userId: string,
@@ -290,6 +298,9 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
       knowledgeItems,
     );
 
+    // Use 1 AI quota for AI-powered import
+    await this.subscriptionsService.useAiQuota(userId, 1);
+
     return result;
   }
 
@@ -328,6 +339,7 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
   // ==================== SUGGEST (Core Feature) ====================
 
   @Post('suggest')
+  @UseGuards(AiQuotaGuard)
   @ApiOperation({
     summary: 'Generate AI reply suggestions',
     description:
@@ -363,11 +375,15 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     },
   })
   @ApiResponse({ status: 400, description: 'AI disabled or error' })
+  @ApiResponse({ status: 403, description: 'AI quota exceeded' })
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
-  generateSuggestions(
+  async generateSuggestions(
     @CurrentUser('id') userId: string,
     @Body() dto: SuggestRequestDto,
   ) {
-    return this.aiService.generateSuggestions(userId, dto);
+    const result = await this.aiService.generateSuggestions(userId, dto);
+    // Use 1 AI quota per suggestion request
+    await this.subscriptionsService.useAiQuota(userId, 1);
+    return result;
   }
 }

@@ -425,6 +425,34 @@ export class BlastProcessor extends WorkerHost {
         duration,
       });
 
+      // Send dashboard update for realtime stats
+      const allBlasts = await this.blastRepository.find({
+        where: { userId: blast.userId },
+      });
+      const totalSent = allBlasts.reduce((sum, b) => sum + b.sentCount, 0);
+      const totalFailed = allBlasts.reduce((sum, b) => sum + b.failedCount, 0);
+      const totalMessages = totalSent + totalFailed;
+      const successRate =
+        totalMessages > 0 ? (totalSent / totalMessages) * 100 : 0;
+
+      this.whatsappGateway.sendDashboardUpdate(blast.userId, {
+        blasts: {
+          total: allBlasts.length,
+          completed: allBlasts.filter((b) => b.status === BlastStatus.COMPLETED)
+            .length,
+          processing: allBlasts.filter(
+            (b) => b.status === BlastStatus.PROCESSING,
+          ).length,
+          pending: allBlasts.filter((b) => b.status === BlastStatus.PENDING)
+            .length,
+        },
+        messages: {
+          totalSent,
+          totalFailed,
+          successRate: Math.round(successRate * 100) / 100,
+        },
+      });
+
       // Send in-app + email notification
       const user = await this.userRepository.findOne({
         where: { id: blast.userId },
