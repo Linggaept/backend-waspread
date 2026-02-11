@@ -8,6 +8,7 @@ import { ChatConversation } from '../../database/entities/chat-conversation.enti
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
 import { Contact } from '../../database/entities/contact.entity';
+import { ContactFollowup } from '../../database/entities/contact-followup.entity';
 import { ChatsService } from './chats.service';
 import { ChatsController } from './chats.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -27,6 +28,7 @@ import { FunnelTrackerService } from '../analytics/services/funnel-tracker.servi
       PinnedConversation,
       Contact,
       ChatConversation,
+      ContactFollowup,
     ]),
     WhatsAppModule,
     UploadsModule,

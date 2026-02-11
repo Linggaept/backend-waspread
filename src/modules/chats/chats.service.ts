@@ -20,6 +20,10 @@ import { ChatConversation } from '../../database/entities/chat-conversation.enti
 import { BlastMessage } from '../../database/entities/blast.entity';
 import { PinnedConversation } from '../../database/entities/pinned-conversation.entity';
 import { Contact } from '../../database/entities/contact.entity';
+import {
+  ContactFollowup,
+  ContactFollowupStatus,
+} from '../../database/entities/contact-followup.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import { UploadsService } from '../uploads/uploads.service';
@@ -41,6 +45,8 @@ export class ChatsService implements OnModuleInit {
     private readonly contactRepository: Repository<Contact>,
     @InjectRepository(ChatConversation)
     private readonly chatConversationRepository: Repository<ChatConversation>,
+    @InjectRepository(ContactFollowup)
+    private readonly contactFollowupRepository: Repository<ContactFollowup>,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
     private readonly uploadsService: UploadsService,
@@ -380,6 +386,30 @@ export class ChatsService implements OnModuleInit {
       // Silently fail - use cached pushNames
     }
 
+    // Batch fetch scheduled followups for all phone numbers
+    const scheduledFollowups = await this.contactFollowupRepository.find({
+      where: {
+        userId,
+        phoneNumber: In(phoneNumbers),
+        status: In([ContactFollowupStatus.SCHEDULED, ContactFollowupStatus.QUEUED]),
+      },
+      select: ['id', 'phoneNumber', 'message', 'scheduledAt', 'status'],
+    });
+
+    // Create a map of phoneNumber -> followup
+    const followupMap = new Map<string, { id: string; message: string; scheduledAt: Date; status: string }>();
+    for (const fu of scheduledFollowups) {
+      // Only keep the earliest scheduled followup per phone
+      if (!followupMap.has(fu.phoneNumber)) {
+        followupMap.set(fu.phoneNumber, {
+          id: fu.id,
+          message: fu.message,
+          scheduledAt: fu.scheduledAt,
+          status: fu.status,
+        });
+      }
+    }
+
     // Transform to response format
     const data = conversations.map((conv) => {
       // Prioritize: WA pushName > cached pushName
@@ -404,6 +434,7 @@ export class ChatsService implements OnModuleInit {
         campaign: conv.blastId
           ? { blastId: conv.blastId, blastName: conv.blastName || 'Blast' }
           : null,
+        followUp: followupMap.get(conv.phoneNumber) || null,
       };
     });
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../../../database/entities/blast.entity';
 import { BlastReply } from '../../../database/entities/blast-reply.entity';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
+import { FollowupsService } from '../../followups/followups.service';
 
 interface IncomingMessage {
   id: { id: string };
@@ -31,6 +32,8 @@ export class ReplyDetectionService {
     @InjectRepository(Blast)
     private readonly blastRepository: Repository<Blast>,
     private readonly whatsappGateway: WhatsAppGateway,
+    @Inject(forwardRef(() => FollowupsService))
+    private readonly followupsService: FollowupsService,
   ) {}
 
   /**
@@ -73,6 +76,24 @@ export class ReplyDetectionService {
         mediaType: reply.mediaType,
         receivedAt: reply.receivedAt,
       });
+
+      // Cancel any scheduled follow-ups for this recipient
+      try {
+        const cancelledCount =
+          await this.followupsService.cancelScheduledFollowups(
+            phoneNumber,
+            matchedMessage.blastId,
+          );
+        if (cancelledCount > 0) {
+          this.logger.log(
+            `Cancelled ${cancelledCount} scheduled follow-ups for ${phoneNumber}`,
+          );
+        }
+      } catch (followupError) {
+        this.logger.warn(
+          `Failed to cancel scheduled follow-ups: ${followupError}`,
+        );
+      }
 
       this.logger.log(
         `Reply detected from ${phoneNumber} for blast ${matchedMessage.blastId}`,

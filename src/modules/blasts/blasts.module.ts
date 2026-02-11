@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module, OnModuleInit, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { BlastsService } from './blasts.service';
@@ -19,6 +19,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ReplyDetectionService } from './services/reply-detection.service';
 import { BlastRepliesService } from './services/blast-replies.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { FollowupsModule } from '../followups/followups.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
     TemplatesModule,
     NotificationsModule,
     AnalyticsModule,
+    forwardRef(() => FollowupsModule),
   ],
   controllers: [BlastsController],
   providers: [

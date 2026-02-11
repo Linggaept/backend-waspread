@@ -15,3 +15,6 @@ export * from './lead-score.entity';
 export * from './lead-score-settings.entity';
 export * from './conversation-funnel.entity';
 export * from './analytics-snapshot.entity';
+export * from './followup-campaign.entity';
+export * from './followup-message.entity';
+export * from './contact-followup.entity';

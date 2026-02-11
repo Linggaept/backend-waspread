@@ -508,4 +508,68 @@ export class WhatsAppGateway
     this.server.to(`user:${userId}`).emit('aiQuota:update', data);
     this.logger.debug(`AI quota update sent to user ${userId}`);
   }
+
+  // ==================== Follow-up Events ====================
+
+  // Send follow-up scheduled notification
+  sendFollowupScheduled(
+    userId: string,
+    data: {
+      campaignId: string;
+      count: number;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('followup:scheduled', data);
+    this.logger.log(
+      `Follow-up scheduled: ${data.count} messages for campaign ${data.campaignId}`,
+    );
+  }
+
+  // Send follow-up sent notification
+  sendFollowupSent(
+    userId: string,
+    data: {
+      campaignId: string;
+      phoneNumber: string;
+      step: number;
+      sentAt: Date;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('followup:sent', data);
+    this.logger.debug(
+      `Follow-up sent to ${data.phoneNumber} (step ${data.step})`,
+    );
+  }
+
+  // Send follow-up campaign completed notification
+  sendFollowupCompleted(
+    userId: string,
+    data: {
+      campaignId: string;
+      totalSent: number;
+      totalSkipped: number;
+      totalFailed: number;
+      totalReplied: number;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('followup:completed', data);
+    this.logger.log(
+      `Follow-up campaign completed: ${data.campaignId} - ${data.totalSent} sent, ${data.totalSkipped} skipped`,
+    );
+  }
+
+  // Send follow-up progress notification
+  sendFollowupProgress(
+    userId: string,
+    data: {
+      campaignId: string;
+      scheduled: number;
+      sent: number;
+      skipped: number;
+      failed: number;
+      total: number;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('followup:progress', data);
+  }
 }

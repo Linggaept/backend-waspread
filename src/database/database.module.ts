@@ -24,6 +24,9 @@ import { ConversationFunnel } from './entities/conversation-funnel.entity';
 import { AnalyticsSnapshot } from './entities/analytics-snapshot.entity';
 import { ChatConversation } from './entities/chat-conversation.entity';
 import { Product } from './entities/product.entity';
+import { FollowupCampaign } from './entities/followup-campaign.entity';
+import { FollowupMessage } from './entities/followup-message.entity';
+import { ContactFollowup } from './entities/contact-followup.entity';
 
 @Module({
   imports: [
@@ -62,6 +65,9 @@ import { Product } from './entities/product.entity';
           AnalyticsSnapshot,
           ChatConversation,
           Product,
+          FollowupCampaign,
+          FollowupMessage,
+          ContactFollowup,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // WARNING: Set to false after initial deployment!
