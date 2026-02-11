@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import {
   CreatePaymentDto,
@@ -35,6 +36,7 @@ export class PaymentsController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // FIX: Rate limit to 5 payment attempts per minute
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create payment / checkout' })
   @ApiResponse({
@@ -54,6 +56,7 @@ export class PaymentsController {
   }
 
   @Post('notification')
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // FIX: Rate limit webhook to 10 requests per minute per IP
   @ApiOperation({ summary: 'Midtrans webhook notification' })
   @ApiResponse({ status: 200, description: 'Notification processed' })
   handleNotification(@Req() req: Request) {

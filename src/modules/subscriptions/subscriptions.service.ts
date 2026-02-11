@@ -46,6 +46,19 @@ export class SubscriptionsService {
     packageId: string,
     paymentId: string | null,
   ): Promise<Subscription> {
+    // FIX: Check if subscription already exists for this paymentId (prevent duplicate from webhook retry)
+    if (paymentId) {
+      const existingSubscription = await this.subscriptionRepository.findOne({
+        where: { paymentId },
+      });
+      if (existingSubscription) {
+        this.logger.warn(
+          `Subscription already exists for paymentId ${paymentId}, returning existing`,
+        );
+        return existingSubscription;
+      }
+    }
+
     const pkg = await this.packagesService.findOne(packageId);
 
     // Calculate dates
@@ -65,7 +78,23 @@ export class SubscriptionsService {
       status: SubscriptionStatus.ACTIVE,
     });
 
-    await this.subscriptionRepository.save(subscription);
+    try {
+      await this.subscriptionRepository.save(subscription);
+    } catch (error: any) {
+      // FIX: Handle unique constraint violation (race condition fallback)
+      if (error.code === '23505' && paymentId) {
+        // PostgreSQL unique_violation
+        this.logger.warn(
+          `Duplicate subscription attempt for paymentId ${paymentId}, fetching existing`,
+        );
+        const existing = await this.subscriptionRepository.findOne({
+          where: { paymentId },
+        });
+        if (existing) return existing;
+      }
+      throw error;
+    }
+
     this.logger.log(
       `Subscription activated for user ${userId}, package ${pkg.name}`,
     );

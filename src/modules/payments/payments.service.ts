@@ -136,8 +136,37 @@ export class PaymentsService {
       );
     }
 
-    // Generate unique order ID
-    const orderId = `WS-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // FIX: Check if user already has a PENDING payment for this package (prevent double-click)
+    const existingPendingPayment = await this.paymentRepository.findOne({
+      where: {
+        userId,
+        packageId: pkg.id,
+        status: PaymentStatus.PENDING,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (existingPendingPayment) {
+      // Check if the pending payment is less than 30 minutes old (Midtrans token validity)
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      if (existingPendingPayment.createdAt > thirtyMinutesAgo && existingPendingPayment.snapToken) {
+        this.logger.log(
+          `Returning existing pending payment for user ${userId}, package ${pkg.id}`,
+        );
+        // Return existing payment instead of creating new one
+        return {
+          payment: existingPendingPayment,
+          snapToken: existingPendingPayment.snapToken,
+          redirectUrl: `https://app.${this.configService.get<boolean>('midtrans.isProduction') ? '' : 'sandbox.'}midtrans.com/snap/v2/vtweb/${existingPendingPayment.snapToken}`,
+        };
+      }
+      // If older than 30 minutes, mark as expired
+      existingPendingPayment.status = PaymentStatus.EXPIRED;
+      await this.paymentRepository.save(existingPendingPayment);
+    }
+
+    // Generate unique order ID using crypto for better randomness
+    const orderId = `WS-${Date.now()}-${crypto.randomUUID().substring(0, 8)}`;
 
     // Create payment record
     const payment = this.paymentRepository.create({
@@ -276,6 +305,9 @@ export class PaymentsService {
       unknown
     >;
 
+    // FIX: Store previous status to check for idempotency
+    const previousStatus = payment.status;
+
     // Determine payment status
     if (
       transaction_status === 'capture' ||
@@ -285,12 +317,21 @@ export class PaymentsService {
         payment.status = PaymentStatus.SUCCESS;
         payment.paidAt = new Date();
 
-        // Activate subscription
-        await this.subscriptionsService.activateSubscription(
-          payment.userId,
-          payment.packageId,
-          payment.id,
-        );
+        // FIX: Only activate subscription if payment was NOT already SUCCESS (idempotent webhook)
+        if (previousStatus !== PaymentStatus.SUCCESS) {
+          this.logger.log(
+            `Activating subscription for payment ${order_id} (previous status: ${previousStatus})`,
+          );
+          await this.subscriptionsService.activateSubscription(
+            payment.userId,
+            payment.packageId,
+            payment.id,
+          );
+        } else {
+          this.logger.log(
+            `Skipping subscription activation for ${order_id} - already processed (status was: ${previousStatus})`,
+          );
+        }
       } else {
         payment.status = PaymentStatus.FAILED;
       }
@@ -307,7 +348,7 @@ export class PaymentsService {
     }
 
     await this.paymentRepository.save(payment);
-    this.logger.log(`Payment ${order_id} updated to status: ${payment.status}`);
+    this.logger.log(`Payment ${order_id} updated to status: ${payment.status} (was: ${previousStatus})`);
 
     // Send notifications based on payment status
     if (user && payment.package) {

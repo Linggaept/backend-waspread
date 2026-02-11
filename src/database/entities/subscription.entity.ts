@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Package } from './package.entity';
@@ -40,7 +41,8 @@ export class Subscription {
   @JoinColumn({ name: 'paymentId' })
   payment: Payment;
 
-  @Column({ nullable: true })
+  // FIX: Add unique constraint to prevent duplicate subscriptions from same payment
+  @Column({ nullable: true, unique: true })
   paymentId: string;
 
   @Column()
