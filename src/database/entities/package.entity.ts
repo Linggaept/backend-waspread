@@ -63,6 +63,9 @@ export class Package {
   @Column({ default: true })
   hasLeadScoring: boolean;
 
+  @Column({ default: true })
+  hasFollowupFeature: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

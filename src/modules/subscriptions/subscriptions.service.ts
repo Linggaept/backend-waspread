@@ -364,7 +364,7 @@ export class SubscriptionsService {
 
   async checkFeatureAccess(
     userId: string,
-    feature: 'analytics' | 'ai' | 'leadScoring',
+    feature: 'analytics' | 'ai' | 'leadScoring' | 'followup',
   ): Promise<{ hasAccess: boolean; message?: string }> {
     const subscription = await this.getActiveSubscription(userId);
 
@@ -384,6 +384,9 @@ export class SubscriptionsService {
         break;
       case 'leadScoring':
         hasAccess = pkg.hasLeadScoring;
+        break;
+      case 'followup':
+        hasAccess = pkg.hasFollowupFeature;
         break;
     }
 

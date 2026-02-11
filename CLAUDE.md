@@ -58,12 +58,13 @@ npm run docker:logs             # Follow logs
 - `notifications/` - In-app notifications with WebSocket delivery and email integration
 - `health/` - System health endpoints
 - `leads/` - Lead scoring system with BullMQ queue processing (`leads.processor.ts`)
+- `followups/` - Automated followup campaigns triggered by blast responses or funnel stages, with multi-step message sequences and scheduling (`followup.processor.ts`, `contact-followup.processor.ts`)
 - `analytics/` - Conversation funnel tracking, analytics snapshots, and closing insights
 - `products/` - Product catalog management
 - `settings/` - User settings management
 
 **Infrastructure** (`src/`):
-- `queue/queue.module.ts` - BullMQ/Redis connection setup (queues: `blast`, `leads`)
+- `queue/queue.module.ts` - BullMQ/Redis connection setup (queues: `blast`, `leads`, `followup`, `contact-followup`)
 - `config/` - Environment configuration loaders and validation
 - `database/data-source.ts` - TypeORM data source for migrations
 
@@ -82,6 +83,9 @@ npm run docker:logs             # Follow logs
 - ChatConversation - Denormalized conversation summaries for fast list rendering
 - PinnedConversation - User-pinned conversations
 - UserSettings - Per-user preferences
+- FollowupCampaign - Automated followup campaign configurations with trigger conditions and message sequences
+- FollowupMessage - Individual scheduled followup messages
+- ContactFollowup - Per-contact followup tracking and status
 
 **Database Indexes** (important for query performance):
 - `blast_messages`: [blastId, status]
@@ -163,6 +167,14 @@ npm run docker:logs             # Follow logs
 - Auto-progression via keyword detection (e.g., "beli", "order" → INTERESTED)
 - Deal value tracking for closed deals
 - AI-powered closing insights with success/failure factors
+
+**Automated Followup Campaigns**:
+- Trigger-based: NO_REPLY, STAGE_REPLIED, STAGE_INTERESTED, STAGE_NEGOTIATING
+- Multi-step message sequences with configurable delays (hours)
+- Per-contact tracking via ContactFollowup entity
+- Scheduler service checks pending followups and queues them for processing
+- Integrates with chat system for message persistence and WebSocket delivery
+- Skips contacts who have already replied or progressed in funnel
 
 **API Response Format**:
 All responses wrapped via `TransformInterceptor` using `ApiResponse<T>`:

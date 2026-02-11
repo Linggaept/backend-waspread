@@ -29,12 +29,15 @@ import {
 } from './dto';
 import { ContactFollowupService } from './services/contact-followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { FeatureGuard } from '../auth/guards/feature.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireFeature } from '../auth/decorators/feature.decorator';
 
 @ApiTags('Followups')
 @ApiBearerAuth('JWT-auth')
 @Controller('followups')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FeatureGuard)
+@RequireFeature('followup')
 export class FollowupsController {
   constructor(
     private readonly followupsService: FollowupsService,

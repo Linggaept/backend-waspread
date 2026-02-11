@@ -142,6 +142,15 @@ export class CreatePackageDto {
   @IsBoolean()
   @IsOptional()
   hasLeadScoring?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Has followup feature',
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  hasFollowupFeature?: boolean;
 }
 
 export class UpdatePackageDto {
@@ -264,4 +273,12 @@ export class UpdatePackageDto {
   @IsBoolean()
   @IsOptional()
   hasLeadScoring?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Has followup feature',
+  })
+  @IsBoolean()
+  @IsOptional()
+  hasFollowupFeature?: boolean;
 }

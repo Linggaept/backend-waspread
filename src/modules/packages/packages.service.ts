@@ -46,6 +46,7 @@ export class PackagesService implements OnModuleInit {
         hasAnalytics: false, // No analytics in free
         hasAiFeatures: true, // Allow AI with quota
         hasLeadScoring: false, // No lead scoring in free
+        hasFollowupFeature: false, // No followup in free
       });
       await this.packageRepository.save(pkg);
     } else {
@@ -68,6 +69,10 @@ export class PackagesService implements OnModuleInit {
       }
       if (existing.hasLeadScoring === true) {
         existing.hasLeadScoring = false;
+        needsUpdate = true;
+      }
+      if (existing.hasFollowupFeature === true) {
+        existing.hasFollowupFeature = false;
         needsUpdate = true;
       }
       if (existing.blastDailyLimit === 0) {
