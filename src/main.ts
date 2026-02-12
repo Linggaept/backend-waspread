@@ -9,8 +9,15 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 
 async function bootstrap() {
+  // Environment-aware logger levels
+  const isProduction = process.env.NODE_ENV === 'production';
+  const logLevels: ('error' | 'warn' | 'log' | 'debug' | 'verbose')[] =
+    isProduction
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'];
+
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: logLevels,
   });
 
   // Security Headers
@@ -21,7 +28,11 @@ async function bootstrap() {
           defaultSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           scriptSrc: ["'self'"],
-          imgSrc: ["'self'", 'data:', 'https:'],
+          imgSrc: [
+            "'self'",
+            'data:',
+            'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
+          ],
         },
       },
       hsts: {
@@ -58,17 +69,22 @@ async function bootstrap() {
     }),
   );
 
-  // Enable CORS
+  // Enable CORS - environment-aware
+  const productionOrigins = [
+    'https://waspread.vercel.app',
+    'https://waspread.com',
+    'https://api.netadev.my.id',
+    'https://www.netadev.my.id',
+    'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
+  ];
+  const developmentOrigins = [
+    'http://localhost:3000',
+    'http://localhost:2004',
+    ...productionOrigins,
+  ];
+
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:2004',
-      'https://waspread.vercel.app',
-      'https://waspread.com',
-      'https://api.netadev.my.id',
-      'https://www.netadev.my.id',
-      'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
-    ],
+    origin: nodeEnv === 'production' ? productionOrigins : developmentOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });

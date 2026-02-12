@@ -2,9 +2,11 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { PackagesService } from '../packages/packages.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -32,6 +34,8 @@ import {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -75,7 +79,7 @@ export class AuthService {
         );
       }
     } catch (error) {
-      console.error('Failed to assign free trial:', error);
+      this.logger.error('Failed to assign free trial', error);
     }
 
     // Audit log
@@ -89,7 +93,7 @@ export class AuthService {
     this.notificationsService
       .notifyWelcome(user.id, user.email, user.name)
       .catch((err) => {
-        console.error('Failed to send welcome notification:', err);
+        this.logger.error('Failed to send welcome notification', err);
       });
 
     return {
@@ -164,8 +168,8 @@ export class AuthService {
       };
     }
 
-    // Generate 6 digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate cryptographically secure 6 digit code
+    const code = randomInt(100000, 1000000).toString();
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15); // 15 mins expiry
 
@@ -251,7 +255,7 @@ export class AuthService {
         email: resetRequest.email,
       })
       .catch((err) => {
-        console.error('Failed to send password changed notification:', err);
+        this.logger.error('Failed to send password changed notification', err);
       });
 
     return {

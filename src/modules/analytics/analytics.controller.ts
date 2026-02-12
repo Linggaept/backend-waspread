@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
@@ -38,6 +39,8 @@ import {
 @RequireFeature('analytics')
 @Controller('analytics')
 export class AnalyticsController {
+  private readonly logger = new Logger(AnalyticsController.name);
+
   constructor(
     private readonly analyticsService: AnalyticsService,
     private readonly funnelTrackerService: FunnelTrackerService,
@@ -129,7 +132,7 @@ export class AnalyticsController {
       this.closingInsightService
         .analyzeClosing(userId, phoneNumber)
         .catch((err) => {
-          console.error(`AI analysis failed: ${err}`);
+          this.logger.error(`AI analysis failed for ${phoneNumber}`, err);
         });
     }
 
