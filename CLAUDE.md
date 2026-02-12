@@ -196,6 +196,7 @@ Environment variables configured via `.env` (see `.env.example`):
 
 **Optional:**
 - `APP_PORT` - Server port (Docker uses 2004, .env.example defaults to 3000)
+- `LOG_LEVEL` - Logging level (default: debug in development, limited in production)
 - `R2_*` - Cloudflare R2 storage (falls back to local `uploads/` if not set)
 - `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
@@ -208,10 +209,17 @@ Environment variables configured via `.env` (see `.env.example`):
 
 **API Endpoints:**
 - API Base: `http://localhost:{PORT}/api`
-- Swagger Docs: `http://localhost:{PORT}/docs`
+- Swagger Docs: `http://localhost:{PORT}/docs` (disabled in production)
 - Health Check: `http://localhost:{PORT}/api/health`
 
 **Rate Limiting**: Global throttle via `@nestjs/throttler` (100 requests/minute default)
+
+**Backup Configuration** (optional):
+- `DAILY_RETENTION` - Days to keep daily backups (default: 7)
+- `WEEKLY_RETENTION` - Weeks to keep weekly backups (default: 4)
+- `MONTHLY_RETENTION` - Months to keep monthly backups (default: 3)
+- `BACKUP_ALERT_EMAIL` - Email for backup alerts
+- `BACKUP_ALERT_WEBHOOK` - Webhook URL for backup alerts
 
 ## Development Guidelines
 

@@ -23,6 +23,8 @@ import { Notification } from '../../../database/entities/notification.entity';
       'https://api.netadev.my.id',
       'https://www.netadev.my.id',
       'https://pub-33094a992e3c43afbf4383b7bf01bcbd.r2.dev',
+      'https://waspread.id',
+      'https://www.waspread.id',
     ],
   },
   namespace: '/whatsapp',
