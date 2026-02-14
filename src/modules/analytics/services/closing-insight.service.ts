@@ -9,6 +9,7 @@ import {
   AiInsight,
 } from '../../../database/entities/conversation-funnel.entity';
 import { ChatMessage } from '../../../database/entities/chat-message.entity';
+import { AiTokenPricingService } from '../../ai/services/ai-token-pricing.service';
 
 @Injectable()
 export class ClosingInsightService {
@@ -22,14 +23,22 @@ export class ClosingInsightService {
     @InjectRepository(ChatMessage)
     private readonly chatMessageRepository: Repository<ChatMessage>,
     private readonly configService: ConfigService,
+    private readonly pricingService: AiTokenPricingService,
   ) {
     this.initializeGemini();
+  }
+
+  /**
+   * Calculate platform tokens from Gemini token usage (uses dynamic pricing from DB)
+   */
+  async calculatePlatformTokens(geminiTokens: number): Promise<number> {
+    return this.pricingService.calculatePlatformTokens(geminiTokens, 'analytics');
   }
 
   private initializeGemini() {
     const apiKey = this.configService.get<string>('gemini.apiKey');
     const modelName =
-      this.configService.get<string>('gemini.model') || 'gemini-2.0-flash';
+      this.configService.get<string>('gemini.model') || 'gemini-2.5-flash';
 
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
@@ -44,11 +53,12 @@ export class ClosingInsightService {
 
   /**
    * Auto-triggered when a conversation closes (won or lost)
+   * Returns insight with token usage for dynamic pricing
    */
   async analyzeClosing(
     userId: string,
     phoneNumber: string,
-  ): Promise<AiInsight | null> {
+  ): Promise<{ insight: AiInsight; tokenUsage: { geminiTokens: number; platformTokens: number } } | null> {
     if (!this.model) {
       this.logger.warn('AI not configured, skipping closing analysis');
       return null;
@@ -69,7 +79,10 @@ export class ClosingInsightService {
     // Skip if already analyzed
     if (funnel.isAnalyzed && funnel.aiInsight) {
       this.logger.debug(`Funnel ${normalizedPhone} already analyzed`);
-      return funnel.aiInsight;
+      return {
+        insight: funnel.aiInsight,
+        tokenUsage: { geminiTokens: 0, platformTokens: 0 }, // No new tokens used
+      };
     }
 
     // Only analyze closed conversations
@@ -104,6 +117,15 @@ export class ClosingInsightService {
       const result = await this.model.generateContent(prompt);
       const response = result.response.text();
 
+      // Get token usage
+      const usageMetadata = result.response.usageMetadata;
+      const geminiTokens = usageMetadata?.totalTokenCount || 0;
+      const platformTokens = await this.calculatePlatformTokens(geminiTokens);
+
+      this.logger.debug(
+        `[ANALYTICS] Token usage: ${geminiTokens} Gemini = ${platformTokens} platform tokens`,
+      );
+
       const insight = this.parseInsightResponse(response, funnel.currentStage);
       insight.analyzedAt = new Date();
 
@@ -113,10 +135,10 @@ export class ClosingInsightService {
       await this.funnelRepository.save(funnel);
 
       this.logger.log(
-        `AI insight generated for ${normalizedPhone}: ${funnel.currentStage}`,
+        `AI insight generated for ${normalizedPhone}: ${funnel.currentStage} (${platformTokens} tokens)`,
       );
 
-      return insight;
+      return { insight, tokenUsage: { geminiTokens, platformTokens } };
     } catch (error) {
       this.logger.error(`AI analysis failed for ${normalizedPhone}: ${error}`);
       return null;
@@ -126,7 +148,10 @@ export class ClosingInsightService {
   /**
    * Force re-analyze a conversation
    */
-  async reanalyze(userId: string, phoneNumber: string): Promise<AiInsight> {
+  async reanalyze(
+    userId: string,
+    phoneNumber: string,
+  ): Promise<{ insight: AiInsight; tokenUsage: { geminiTokens: number; platformTokens: number } }> {
     if (!this.model) {
       throw new BadRequestException('AI service not configured');
     }
@@ -146,13 +171,13 @@ export class ClosingInsightService {
     funnel.aiInsight = null;
     await this.funnelRepository.save(funnel);
 
-    const insight = await this.analyzeClosing(userId, phoneNumber);
+    const result = await this.analyzeClosing(userId, phoneNumber);
 
-    if (!insight) {
+    if (!result) {
       throw new BadRequestException('Failed to generate insight');
     }
 
-    return insight;
+    return result;
   }
 
   /**

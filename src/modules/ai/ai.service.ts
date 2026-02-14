@@ -27,6 +27,7 @@ import {
   UpdateAiSettingsDto,
   SuggestRequestDto,
 } from './dto';
+import { AiTokenPricingService } from './services/ai-token-pricing.service';
 
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 
@@ -45,6 +46,7 @@ export class AiService {
     @InjectRepository(ChatMessage)
     private readonly chatMessageRepository: Repository<ChatMessage>,
     private readonly configService: ConfigService,
+    private readonly pricingService: AiTokenPricingService,
   ) {
     this.initializeGemini();
   }
@@ -52,15 +54,22 @@ export class AiService {
   private initializeGemini() {
     const apiKey = this.configService.get<string>('gemini.apiKey');
     const modelName =
-      this.configService.get<string>('gemini.model') || 'gemini-2.5-flash';
+      this.configService.get<string>('gemini.model') || 'gemini-2.0-flash';
+
+    this.logger.debug(`[GEMINI] Initializing with model: ${modelName}`);
+    this.logger.debug(`[GEMINI] API Key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
 
     if (apiKey) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      this.fileManager = new GoogleAIFileManager(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: modelName });
-      this.logger.log(`Gemini AI initialized with model: ${modelName}`);
+      try {
+        this.genAI = new GoogleGenerativeAI(apiKey);
+        this.fileManager = new GoogleAIFileManager(apiKey);
+        this.model = this.genAI.getGenerativeModel({ model: modelName });
+        this.logger.log(`[GEMINI] AI initialized successfully with model: ${modelName}`);
+      } catch (err) {
+        this.logger.error(`[GEMINI] Failed to initialize: ${err}`);
+      }
     } else {
-      this.logger.warn('Gemini API key not configured');
+      this.logger.warn('[GEMINI] API key not configured - AI features disabled');
     }
   }
 
@@ -502,12 +511,20 @@ export class AiService {
 
   // ==================== SUGGEST (Core Feature) ====================
 
+  /**
+   * Calculate platform tokens from Gemini token usage (uses dynamic pricing from DB)
+   */
+  async calculatePlatformTokens(geminiTokens: number, featureKey?: string): Promise<number> {
+    return this.pricingService.calculatePlatformTokens(geminiTokens, featureKey);
+  }
+
   async generateSuggestions(
     userId: string,
-    dto: SuggestRequestDto,
+    dto: SuggestRequestDto & { imageData?: { mimetype: string; data: string } },
   ): Promise<{
     suggestions: string[];
-    context: { knowledgeUsed: string[]; chatHistoryUsed: number };
+    context: { knowledgeUsed: string[]; chatHistoryUsed: number; hasImage: boolean };
+    tokenUsage: { geminiTokens: number; platformTokens: number };
   }> {
     if (!this.model) {
       throw new BadRequestException('AI service not configured');
@@ -534,27 +551,76 @@ export class AiService {
       relevantKnowledge,
       chatHistory,
       dto.message,
+      !!dto.imageData, // Flag that image is present
     );
 
-    // 4. Call Gemini
+    // 4. Call Gemini (with or without image)
+    this.logger.debug(`[GEMINI] Generating suggestions for message: "${dto.message?.substring(0, 50)}..."`);
+    this.logger.debug(`[GEMINI] Model initialized: ${!!this.model}`);
+
     try {
-      const result = await this.model.generateContent(prompt);
+      let result;
+
+      if (dto.imageData && this.isImageMimetype(dto.imageData.mimetype)) {
+        // Multimodal: text + image
+        this.logger.debug(
+          `[GEMINI] Generating with image (${dto.imageData.mimetype}, ${Math.round((dto.imageData.data?.length || 0) / 1024)}KB)`,
+        );
+
+        result = await this.model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType: dto.imageData.mimetype,
+              data: dto.imageData.data,
+            },
+          },
+        ]);
+      } else {
+        // Text only
+        this.logger.debug(`[GEMINI] Generating text-only response`);
+        result = await this.model.generateContent(prompt);
+      }
+
       const response = result.response.text();
+      this.logger.debug(`[GEMINI] Raw response: ${response?.substring(0, 200)}...`);
+
+      // Get token usage from Gemini response
+      const usageMetadata = result.response.usageMetadata;
+      const geminiTokens = usageMetadata?.totalTokenCount || 0;
+      const platformTokens = await this.calculatePlatformTokens(geminiTokens, 'suggest');
+
+      this.logger.debug(
+        `[GEMINI] Token usage: ${geminiTokens} Gemini tokens = ${platformTokens} platform tokens`,
+      );
 
       // Parse JSON response
       const suggestions = this.parseSuggestions(response);
+      this.logger.debug(`[GEMINI] Parsed ${suggestions.length} suggestions`);
 
       return {
         suggestions,
         context: {
           knowledgeUsed: relevantKnowledge.map((k) => k.title),
           chatHistoryUsed: chatHistory.length,
+          hasImage: !!dto.imageData,
+        },
+        tokenUsage: {
+          geminiTokens,
+          platformTokens,
         },
       };
-    } catch (error) {
-      this.logger.error(`Gemini API error: ${error}`);
-      throw new BadRequestException('Failed to generate suggestions');
+    } catch (error: any) {
+      this.logger.error(`[GEMINI] API error: ${error?.message || error}`);
+      this.logger.error(`[GEMINI] Error stack: ${error?.stack}`);
+      throw new BadRequestException(`Failed to generate suggestions: ${error?.message}`);
     }
+  }
+
+  private isImageMimetype(mimetype: string): boolean {
+    return ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(
+      mimetype,
+    );
   }
 
   private async searchRelevantKnowledge(
@@ -631,6 +697,7 @@ export class AiService {
     knowledge: AiKnowledgeBase[],
     chatHistory: ChatMessage[],
     incomingMessage: string,
+    hasImage: boolean = false,
   ): string {
     const businessInfo = settings.businessName
       ? `Kamu adalah customer service untuk "${settings.businessName}".`
@@ -662,6 +729,23 @@ export class AiService {
             .join('\n')
         : 'Belum ada riwayat chat.';
 
+    // Add image context if present
+    const imageContext = hasImage
+      ? `
+CATATAN: Pelanggan juga mengirim GAMBAR bersama pesan ini.
+- Analisis gambar tersebut
+- Jika gambar berisi produk/screenshot, identifikasi dan berikan info relevan
+- Jika gambar bukti transfer, konfirmasi penerimaan
+- Jika gambar error/masalah, berikan solusi
+`
+      : '';
+
+    const messageContext = incomingMessage
+      ? `PESAN PELANGGAN:\n"${incomingMessage}"`
+      : hasImage
+        ? 'PESAN PELANGGAN:\n[Pelanggan mengirim gambar tanpa teks]'
+        : 'PESAN PELANGGAN:\n[Tidak ada pesan]';
+
     return `${businessInfo}${businessDesc}
 
 PANDUAN MENJAWAB:
@@ -669,15 +753,14 @@ PANDUAN MENJAWAB:
 - Singkat, jelas, dan membantu
 - Fokus ke closing/konversi jika relevan
 - Maksimal 150 karakter per opsi
-
+${imageContext}
 DATA REFERENSI:
 ${knowledgeText}
 
 RIWAYAT CHAT TERAKHIR:
 ${historyText}
 
-PESAN PELANGGAN:
-"${incomingMessage}"
+${messageContext}
 
 Berikan 3 opsi balasan berbeda yang natural.
 PENTING: Response HARUS dalam format JSON array saja, tanpa markdown atau penjelasan lain.

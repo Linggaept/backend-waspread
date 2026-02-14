@@ -11,19 +11,30 @@ import {
   GenerateCopyResponseDto,
   CopywritingTone,
 } from './dto';
+import { AiTokenPricingService } from '../ai/services/ai-token-pricing.service';
 
 @Injectable()
 export class CopywritingService implements OnModuleInit {
   private readonly logger = new Logger(CopywritingService.name);
   private model: GenerativeModel | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly pricingService: AiTokenPricingService,
+  ) {}
+
+  /**
+   * Calculate platform tokens from Gemini token usage (uses dynamic pricing from DB)
+   */
+  async calculatePlatformTokens(geminiTokens: number): Promise<number> {
+    return this.pricingService.calculatePlatformTokens(geminiTokens, 'copywriting');
+  }
 
   onModuleInit() {
     const apiKey = this.configService.get<string>('gemini.apiKey');
     if (apiKey) {
       const modelName =
-        this.configService.get<string>('gemini.model') || 'gemini-2.0-flash';
+        this.configService.get<string>('gemini.model') || 'gemini-2.5-flash';
       const genAI = new GoogleGenerativeAI(apiKey);
       this.model = genAI.getGenerativeModel({ model: modelName });
       this.logger.log(`Gemini AI initialized with model: ${modelName}`);
@@ -34,7 +45,7 @@ export class CopywritingService implements OnModuleInit {
     }
   }
 
-  async generateCopy(dto: GenerateCopyDto): Promise<GenerateCopyResponseDto> {
+  async generateCopy(dto: GenerateCopyDto): Promise<GenerateCopyResponseDto & { tokenUsage: { geminiTokens: number; platformTokens: number } }> {
     if (!this.model) {
       throw new BadRequestException(
         'Gemini AI is not configured. Please set GEMINI_API_KEY environment variable.',
@@ -69,6 +80,15 @@ export class CopywritingService implements OnModuleInit {
       const responseText = result.response.text();
       const messages = this.parseResponse(responseText, variations);
 
+      // Get token usage
+      const usageMetadata = result.response.usageMetadata;
+      const geminiTokens = usageMetadata?.totalTokenCount || 0;
+      const platformTokens = await this.calculatePlatformTokens(geminiTokens);
+
+      this.logger.debug(
+        `[COPYWRITING] Token usage: ${geminiTokens} Gemini = ${platformTokens} platform tokens`,
+      );
+
       return {
         variations: messages.map((message) => ({
           message,
@@ -76,6 +96,10 @@ export class CopywritingService implements OnModuleInit {
         })),
         prompt,
         tone,
+        tokenUsage: {
+          geminiTokens,
+          platformTokens,
+        },
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';

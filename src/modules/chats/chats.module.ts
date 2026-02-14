@@ -82,20 +82,25 @@ export class ChatsModule implements OnModuleInit {
             });
 
           // Trigger funnel tracking for incoming messages (fire and forget)
-          if (!message.fromMe && message.body) {
-            this.funnelTrackerService
-              .onMessageReceived(userId, phoneNumber, message.body)
-              .catch((err) => {
-                this.logger.error(`Failed to update funnel: ${err}`);
-              });
+          if (!message.fromMe && (message.body || message.hasMedia)) {
+            // Trigger funnel tracking (text only)
+            if (message.body) {
+              this.funnelTrackerService
+                .onMessageReceived(userId, phoneNumber, message.body)
+                .catch((err) => {
+                  this.logger.error(`Failed to update funnel: ${err}`);
+                });
+            }
 
             // Trigger auto-reply for incoming messages (fire and forget)
+            // Now supports both text and image messages
             this.autoReplyService
               .handleIncomingMessage(
                 userId,
                 phoneNumber,
                 message.id?.id || '',
-                message.body,
+                message.body || '',
+                message.hasMedia ? message.downloadMedia : undefined,
               )
               .catch((err) => {
                 this.logger.error(`Auto-reply error: ${err}`);

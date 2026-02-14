@@ -6,9 +6,11 @@ import { diskStorage } from 'multer';
 import * as path from 'path';
 import { AiController } from './ai.controller';
 import { AiTokenController } from './controllers/ai-token.controller';
+import { AiTokenPricingController } from './controllers/ai-token-pricing.controller';
 import { AiService } from './ai.service';
 import { AutoReplyService } from './services/auto-reply.service';
 import { AiTokenService } from './services/ai-token.service';
+import { AiTokenPricingService } from './services/ai-token-pricing.service';
 import { AutoReplyProcessor } from './processors/auto-reply.processor';
 import { AiKnowledgeBase } from '../../database/entities/ai-knowledge-base.entity';
 import { AiSettings } from '../../database/entities/ai-settings.entity';
@@ -20,6 +22,7 @@ import { User } from '../../database/entities/user.entity';
 import { AiTokenPackage } from '../../database/entities/ai-token-package.entity';
 import { AiTokenPurchase } from '../../database/entities/ai-token-purchase.entity';
 import { AiTokenUsage } from '../../database/entities/ai-token-usage.entity';
+import { AiTokenPricing } from '../../database/entities/ai-token-pricing.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { ChatsModule } from '../chats/chats.module';
@@ -38,6 +41,7 @@ import { FeatureGuard, RolesGuard } from '../auth/guards';
       AiTokenPackage,
       AiTokenPurchase,
       AiTokenUsage,
+      AiTokenPricing,
     ]),
     BullModule.registerQueue({
       name: 'auto-reply',
@@ -59,15 +63,16 @@ import { FeatureGuard, RolesGuard } from '../auth/guards';
       },
     }),
   ],
-  controllers: [AiController, AiTokenController],
+  controllers: [AiController, AiTokenController, AiTokenPricingController],
   providers: [
     AiService,
     AutoReplyService,
     AiTokenService,
+    AiTokenPricingService,
     AutoReplyProcessor,
     FeatureGuard,
     RolesGuard,
   ],
-  exports: [AiService, AutoReplyService, AiTokenService],
+  exports: [AiService, AutoReplyService, AiTokenService, AiTokenPricingService],
 })
 export class AiModule {}

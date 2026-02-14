@@ -123,9 +123,9 @@ export class AiTokenService implements OnModuleInit {
       .getRawOne();
 
     return {
-      balance: user.aiTokenBalance,
-      totalPurchased: parseInt(purchasedResult?.total || '0', 10),
-      totalUsed: parseInt(usedResult?.total || '0', 10),
+      balance: Number(user.aiTokenBalance) || 0,
+      totalPurchased: parseFloat(purchasedResult?.total || '0'),
+      totalUsed: parseFloat(usedResult?.total || '0'),
     };
   }
 
@@ -153,9 +153,11 @@ export class AiTokenService implements OnModuleInit {
         ? featureOrAmount
         : this.getFeatureTokenCost(featureOrAmount);
 
+    const balance = Number(user.aiTokenBalance) || 0;
+
     return {
-      hasEnough: user.aiTokenBalance >= required,
-      balance: user.aiTokenBalance,
+      hasEnough: balance >= required,
+      balance,
       required,
     };
   }
@@ -183,14 +185,17 @@ export class AiTokenService implements OnModuleInit {
     // Auto-calculate cost based on feature if amount not provided
     const tokensToUse = amount ?? this.getFeatureTokenCost(feature);
 
-    if (user.aiTokenBalance < tokensToUse) {
+    // Ensure we're working with numbers (decimal columns return strings)
+    const currentBalance = Number(user.aiTokenBalance) || 0;
+
+    if (currentBalance < tokensToUse) {
       throw new ForbiddenException(
-        `Insufficient AI tokens. Required: ${tokensToUse}, Available: ${user.aiTokenBalance}`,
+        `Insufficient AI tokens. Required: ${tokensToUse}, Available: ${currentBalance}`,
       );
     }
 
-    // Deduct balance
-    user.aiTokenBalance -= tokensToUse;
+    // Deduct balance (round to 2 decimal places to avoid floating point issues)
+    user.aiTokenBalance = Math.round((currentBalance - tokensToUse) * 100) / 100;
     await this.userRepository.save(user);
 
     // Record usage
@@ -234,7 +239,10 @@ export class AiTokenService implements OnModuleInit {
       throw new NotFoundException('User not found');
     }
 
-    user.aiTokenBalance += amount;
+    // Ensure we're working with numbers (decimal columns return strings)
+    const currentBalance = Number(user.aiTokenBalance) || 0;
+    const amountToAdd = Number(amount) || 0;
+    user.aiTokenBalance = Math.round((currentBalance + amountToAdd) * 100) / 100;
     await this.userRepository.save(user);
 
     this.logger.log(
@@ -414,7 +422,7 @@ export class AiTokenService implements OnModuleInit {
     const purchase = this.purchaseRepository.create({
       userId,
       packageId,
-      tokenAmount: pkg.tokenAmount + pkg.bonusTokens,
+      tokenAmount: Number(pkg.tokenAmount) + Number(pkg.bonusTokens),
       price: pkg.price,
       orderId,
       status: AiTokenPurchaseStatus.PENDING,
@@ -437,7 +445,7 @@ export class AiTokenService implements OnModuleInit {
         id: pkg.id,
         price: Number(pkg.price),
         quantity: 1,
-        name: `${pkg.name} - ${pkg.tokenAmount + pkg.bonusTokens} AI Tokens`,
+        name: `${pkg.name} - ${Number(pkg.tokenAmount) + Number(pkg.bonusTokens)} AI Tokens`,
       },
     ];
 
@@ -546,16 +554,17 @@ export class AiTokenService implements OnModuleInit {
 
         // Only add tokens if not already processed (idempotent)
         if (previousStatus !== AiTokenPurchaseStatus.SUCCESS) {
+          const tokenAmountNum = Number(purchase.tokenAmount) || 0;
           await this.addTokens(
             purchase.userId,
-            purchase.tokenAmount,
+            tokenAmountNum,
             `Purchase: ${purchase.id}`,
           );
 
           // Notify via WebSocket
           this.whatsAppGateway.sendAiTokenPurchaseCompleted(purchase.userId, {
             purchaseId: purchase.id,
-            tokenAmount: purchase.tokenAmount,
+            tokenAmount: tokenAmountNum,
             newBalance: (await this.getBalance(purchase.userId)).balance,
           });
 

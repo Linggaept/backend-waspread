@@ -32,6 +32,7 @@ import { AutoReplyLog } from './entities/auto-reply-log.entity';
 import { AiTokenPackage } from './entities/ai-token-package.entity';
 import { AiTokenPurchase } from './entities/ai-token-purchase.entity';
 import { AiTokenUsage } from './entities/ai-token-usage.entity';
+import { AiTokenPricing } from './entities/ai-token-pricing.entity';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { AiTokenUsage } from './entities/ai-token-usage.entity';
             AiTokenPackage,
             AiTokenPurchase,
             AiTokenUsage,
+            AiTokenPricing,
           ],
           migrations: [__dirname + '/migrations/*{.ts,.js}'],
           // IMPORTANT: synchronize is disabled in production to prevent data loss

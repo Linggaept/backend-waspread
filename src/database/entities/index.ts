@@ -18,3 +18,4 @@ export * from './analytics-snapshot.entity';
 export * from './followup-campaign.entity';
 export * from './followup-message.entity';
 export * from './contact-followup.entity';
+export * from './ai-token-pricing.entity';

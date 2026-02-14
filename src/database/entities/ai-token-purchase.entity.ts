@@ -38,7 +38,7 @@ export class AiTokenPurchase {
   @Column()
   packageId: string;
 
-  @Column()
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   tokenAmount: number; // Total tokens received (base + bonus)
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })

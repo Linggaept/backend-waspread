@@ -8,6 +8,10 @@ interface AutoReplyJobData {
   userId: string;
   phoneNumber: string;
   messageBody: string;
+  mediaData?: {
+    mimetype: string;
+    data: string; // base64
+  } | null;
 }
 
 @Processor('auto-reply')
@@ -28,12 +32,14 @@ export class AutoReplyProcessor extends WorkerHost {
   }
 
   private async handleSendAutoReply(job: Job<AutoReplyJobData>): Promise<void> {
-    const { logId, phoneNumber } = job.data;
+    const { logId, phoneNumber, mediaData } = job.data;
 
-    this.logger.debug(`[AUTO-REPLY] Processing job ${job.id} for ${phoneNumber}`);
+    this.logger.debug(
+      `[AUTO-REPLY] Processing job ${job.id} for ${phoneNumber}${mediaData ? ' (with image)' : ''}`,
+    );
 
     try {
-      await this.autoReplyService.processAutoReply(logId);
+      await this.autoReplyService.processAutoReply(logId, mediaData || undefined);
     } catch (error) {
       this.logger.error(
         `[AUTO-REPLY] Job ${job.id} failed for ${phoneNumber}: ${error.message}`,

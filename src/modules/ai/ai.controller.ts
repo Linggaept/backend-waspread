@@ -396,23 +396,34 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     @CurrentUser('id') userId: string,
     @Body() dto: SuggestRequestDto,
   ) {
-    // Check token balance first (1 token for suggestions)
+    // Check token balance first (minimum ~20 tokens for text suggestions)
+    const minTokensRequired = 20;
     const balance = await this.aiTokenService.checkBalance(
       userId,
-      AiFeatureType.SUGGEST,
+      minTokensRequired,
     );
     if (!balance.hasEnough) {
       throw new BadRequestException(
-        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+        `Insufficient AI tokens. Required: ~${minTokensRequired}, Available: ${balance.balance}`,
       );
     }
 
     const result = await this.aiService.generateSuggestions(userId, dto);
 
-    // Use tokens for suggestion (auto-calculated: 1 token)
-    await this.aiTokenService.useTokens(userId, AiFeatureType.SUGGEST);
+    // Use tokens based on actual Gemini usage (dynamic pricing)
+    if (result.tokenUsage.platformTokens > 0) {
+      await this.aiTokenService.useTokens(
+        userId,
+        AiFeatureType.SUGGEST,
+        result.tokenUsage.platformTokens,
+      );
+    }
 
-    return result;
+    return {
+      suggestions: result.suggestions,
+      context: result.context,
+      tokensUsed: result.tokenUsage.platformTokens,
+    };
   }
 
   // ==================== AUTO-REPLY ====================

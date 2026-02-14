@@ -584,10 +584,13 @@ export class WhatsAppGateway
       phoneNumber: string;
       message: string;
       sentAt: Date;
+      hasImage?: boolean;
     },
   ) {
     this.server.to(`user:${userId}`).emit('auto-reply:sent', data);
-    this.logger.debug(`Auto-reply sent to ${data.phoneNumber}`);
+    this.logger.debug(
+      `Auto-reply sent to ${data.phoneNumber}${data.hasImage ? ' (with image)' : ''}`,
+    );
   }
 
   // Send auto-reply skipped notification

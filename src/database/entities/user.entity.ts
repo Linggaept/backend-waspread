@@ -48,8 +48,8 @@ export class User {
   })
   status: UserStatus;
 
-  // Unified AI Token Balance (for all AI features)
-  @Column({ default: 0 })
+  // Unified AI Token Balance (for all AI features) - supports decimals
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   aiTokenBalance: number;
 
   @CreateDateColumn()

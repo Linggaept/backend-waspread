@@ -33,6 +33,12 @@ export class AutoReplyLog {
   @Column({ type: 'text', nullable: true })
   incomingMessageBody: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  hasMedia: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  mediaMimetype: string | null;
+
   @Column({ type: 'text', nullable: true })
   replyMessage: string | null;
 

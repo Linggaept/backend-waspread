@@ -20,6 +20,7 @@ import {
   AddBlacklistDto,
   AutoReplyLogQueryDto,
 } from '../dto/auto-reply.dto';
+import type { MediaData } from '../../whatsapp/adapters/whatsapp-client.interface';
 
 interface SkipResult {
   shouldSkip: boolean;
@@ -51,22 +52,40 @@ export class AutoReplyService {
 
   /**
    * Entry point: handle incoming message for auto-reply
+   * Now supports both text and image messages
    */
   async handleIncomingMessage(
     userId: string,
     phoneNumber: string,
     messageId: string,
     messageBody: string,
+    downloadMedia?: () => Promise<MediaData | null>,
   ): Promise<void> {
     // Normalize phone number
     const normalizedPhone = this.normalizePhoneNumber(phoneNumber);
 
     this.logger.debug(
-      `[AUTO-REPLY] Checking message from ${normalizedPhone} for user ${userId}`,
+      `[AUTO-REPLY] Checking message from ${normalizedPhone} for user ${userId} (hasMedia: ${!!downloadMedia})`,
     );
 
-    // Check if should skip
-    const skipResult = await this.shouldSkip(userId, normalizedPhone);
+    // Download media FIRST (before skip check) so we know the correct token cost
+    let mediaData: MediaData | null = null;
+    if (downloadMedia) {
+      try {
+        mediaData = await downloadMedia();
+        if (mediaData) {
+          this.logger.debug(
+            `[AUTO-REPLY] Downloaded media: ${mediaData.mimetype}, size: ${Math.round((mediaData.data?.length || 0) / 1024)}KB`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(`[AUTO-REPLY] Failed to download media: ${err}`);
+      }
+    }
+
+    // Check if should skip (pass hasImage for correct token cost check)
+    const hasImage = !!mediaData && this.isImageMimetype(mediaData.mimetype);
+    const skipResult = await this.shouldSkip(userId, normalizedPhone, hasImage);
 
     if (skipResult.shouldSkip) {
       this.logger.debug(
@@ -79,6 +98,8 @@ export class AutoReplyService {
         phoneNumber: normalizedPhone,
         incomingMessageId: messageId,
         incomingMessageBody: messageBody,
+        hasMedia: hasImage,
+        mediaMimetype: mediaData?.mimetype || null,
         status: AutoReplyStatus.SKIPPED,
         skipReason: skipResult.reason,
       });
@@ -106,12 +127,15 @@ export class AutoReplyService {
       phoneNumber: normalizedPhone,
       incomingMessageId: messageId,
       incomingMessageBody: messageBody,
+      hasMedia: !!mediaData,
+      mediaMimetype: mediaData?.mimetype || null,
       status: AutoReplyStatus.QUEUED,
       delaySeconds: delay,
     });
     const savedLog = await this.logRepository.save(log);
 
     // Queue the auto-reply job with delay
+    // Note: We pass media base64 data in the job - this works for images up to ~10MB
     await this.autoReplyQueue.add(
       'send-auto-reply',
       {
@@ -119,6 +143,12 @@ export class AutoReplyService {
         userId,
         phoneNumber: normalizedPhone,
         messageBody,
+        mediaData: mediaData
+          ? {
+              mimetype: mediaData.mimetype,
+              data: mediaData.data, // base64
+            }
+          : null,
       },
       {
         delay: delay * 1000, // Convert to milliseconds
@@ -131,24 +161,33 @@ export class AutoReplyService {
     );
 
     this.logger.log(
-      `[AUTO-REPLY] Queued reply for ${normalizedPhone} with ${delay}s delay`,
+      `[AUTO-REPLY] Queued reply for ${normalizedPhone} with ${delay}s delay${mediaData ? ' (with image)' : ''}`,
     );
   }
 
   /**
    * Check if auto-reply should be skipped for this message
+   * @param hasImage - Whether message contains an image (affects token cost)
    */
-  async shouldSkip(userId: string, phoneNumber: string): Promise<SkipResult> {
+  async shouldSkip(
+    userId: string,
+    phoneNumber: string,
+    hasImage: boolean = false,
+  ): Promise<SkipResult> {
     // 1. Check if auto-reply is enabled
     const settings = await this.getSettings(userId);
     if (!settings.autoReplyEnabled) {
       return { shouldSkip: true, reason: 'disabled' };
     }
 
-    // 2. Check AI token balance (1 token for auto-reply)
+    // 2. Check AI token balance (minimum estimate for dynamic pricing)
+    // Text: ~500 Gemini tokens = ~20 platform tokens minimum
+    // Image: ~2000 Gemini tokens = ~80 platform tokens minimum
+    const minTokensRequired = hasImage ? 80 : 20;
+
     const tokenBalance = await this.aiTokenService.checkBalance(
       userId,
-      AiFeatureType.AUTO_REPLY,
+      minTokensRequired,
     );
     if (!tokenBalance.hasEnough) {
       return { shouldSkip: true, reason: 'insufficient_tokens' };
@@ -180,10 +219,21 @@ export class AutoReplyService {
     return { shouldSkip: false };
   }
 
+  private isImageMimetype(mimetype: string): boolean {
+    return ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(
+      mimetype,
+    );
+  }
+
   /**
    * Process auto-reply (called by processor)
+   * @param logId - The auto-reply log ID
+   * @param mediaData - Optional image data for vision-based replies
    */
-  async processAutoReply(logId: string): Promise<void> {
+  async processAutoReply(
+    logId: string,
+    mediaData?: { mimetype: string; data: string },
+  ): Promise<void> {
     const log = await this.logRepository.findOne({ where: { id: logId } });
 
     if (!log) {
@@ -203,20 +253,35 @@ export class AutoReplyService {
       const settings = await this.getSettings(userId);
       let replyMessage: string;
 
+      this.logger.debug(
+        `[AUTO-REPLY] Generating reply for "${incomingMessageBody?.substring(0, 50)}..."${mediaData ? ' (with image)' : ''}`,
+      );
+
+      let platformTokensUsed = 0;
+
       try {
         const suggestions = await this.aiService.generateSuggestions(userId, {
           phoneNumber,
           message: incomingMessageBody || '',
+          imageData: mediaData, // Pass image data for vision analysis
         });
 
         // Use the first suggestion
         replyMessage = suggestions.suggestions[0];
-      } catch (aiError) {
-        this.logger.error(`[AUTO-REPLY] AI generation failed: ${aiError}`);
+        platformTokensUsed = suggestions.tokenUsage.platformTokens;
+
+        this.logger.debug(
+          `[AUTO-REPLY] AI generated: "${replyMessage?.substring(0, 50)}..." (${platformTokensUsed} tokens)`,
+        );
+      } catch (aiError: any) {
+        this.logger.error(`[AUTO-REPLY] AI generation failed: ${aiError?.message || aiError}`);
+        this.logger.error(`[AUTO-REPLY] Error details: ${JSON.stringify(aiError)}`);
 
         // Use fallback message
         if (settings.autoReplyFallbackMessage) {
+          this.logger.warn(`[AUTO-REPLY] Using fallback message`);
           replyMessage = settings.autoReplyFallbackMessage;
+          platformTokensUsed = 0; // No tokens used for fallback
         } else {
           throw aiError;
         }
@@ -236,23 +301,34 @@ export class AutoReplyService {
       log.sentAt = new Date();
       await this.logRepository.save(log);
 
-      // Use AI token (auto-calculated: 1 token for auto-reply)
-      await this.aiTokenService.useTokens(
-        userId,
-        AiFeatureType.AUTO_REPLY,
-        undefined, // auto-calculate from feature
-        log.id,
-      );
+      // Use AI tokens (dynamic pricing based on actual Gemini usage)
+      if (platformTokensUsed > 0) {
+        const featureType = mediaData
+          ? AiFeatureType.AUTO_REPLY_IMAGE
+          : AiFeatureType.AUTO_REPLY;
+
+        await this.aiTokenService.useTokens(
+          userId,
+          featureType,
+          platformTokensUsed, // Dynamic amount based on actual usage
+          log.id,
+        );
+
+        this.logger.debug(
+          `[AUTO-REPLY] Deducted ${platformTokensUsed} tokens for ${featureType}`,
+        );
+      }
 
       // Emit sent event
       this.whatsAppGateway.sendAutoReplySent(userId, {
         phoneNumber,
         message: replyMessage,
         sentAt: log.sentAt,
+        hasImage: !!mediaData,
       });
 
       this.logger.log(
-        `[AUTO-REPLY] Sent reply to ${phoneNumber}: "${replyMessage.substring(0, 50)}..."`,
+        `[AUTO-REPLY] Sent reply to ${phoneNumber}${mediaData ? ' (with image)' : ''}: "${replyMessage.substring(0, 50)}..."`,
       );
     } catch (error) {
       this.logger.error(

@@ -34,7 +34,7 @@ export class CopywritingController {
   @ApiOperation({
     summary: 'Generate WhatsApp marketing copy with AI',
     description:
-      'Uses Google Gemini to generate persuasive WhatsApp marketing messages with multiple variations. Costs 2 AI tokens.',
+      'Uses Google Gemini to generate persuasive WhatsApp marketing messages with multiple variations. Token cost is dynamic based on actual usage.',
   })
   @ApiResponse({
     status: 200,
@@ -53,23 +53,35 @@ export class CopywritingController {
   async generate(
     @CurrentUser('id') userId: string,
     @Body() dto: GenerateCopyDto,
-  ): Promise<GenerateCopyResponseDto> {
-    // Check token balance first (2 tokens for copywriting)
+  ): Promise<GenerateCopyResponseDto & { tokensUsed: number }> {
+    // Check token balance first (minimum ~30 tokens for copywriting)
+    const minTokensRequired = 30;
     const balance = await this.aiTokenService.checkBalance(
       userId,
-      AiFeatureType.COPYWRITING,
+      minTokensRequired,
     );
     if (!balance.hasEnough) {
       throw new BadRequestException(
-        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+        `Insufficient AI tokens. Required: ~${minTokensRequired}, Available: ${balance.balance}`,
       );
     }
 
     const result = await this.copywritingService.generateCopy(dto);
 
-    // Use tokens for copywriting (auto-calculated: 2 tokens)
-    await this.aiTokenService.useTokens(userId, AiFeatureType.COPYWRITING);
+    // Use tokens based on actual Gemini usage (dynamic pricing)
+    if (result.tokenUsage.platformTokens > 0) {
+      await this.aiTokenService.useTokens(
+        userId,
+        AiFeatureType.COPYWRITING,
+        result.tokenUsage.platformTokens,
+      );
+    }
 
-    return result;
+    return {
+      variations: result.variations,
+      prompt: result.prompt,
+      tone: result.tone,
+      tokensUsed: result.tokenUsage.platformTokens,
+    };
   }
 }

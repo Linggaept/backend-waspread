@@ -17,10 +17,10 @@ export class AiTokenPackage {
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column()
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   tokenAmount: number; // Base tokens
 
-  @Column({ default: 0 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   bonusTokens: number; // Bonus tokens for larger packages
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
@@ -43,6 +43,6 @@ export class AiTokenPackage {
 
   // Virtual getter for total tokens
   get totalTokens(): number {
-    return this.tokenAmount + this.bonusTokens;
+    return Number(this.tokenAmount) + Number(this.bonusTokens);
   }
 }

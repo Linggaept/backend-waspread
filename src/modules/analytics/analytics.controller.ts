@@ -231,7 +231,7 @@ export class AnalyticsController {
 
   @Post('insights/:phoneNumber/analyze')
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
-  @ApiOperation({ summary: 'Force AI analysis for a conversation (3 tokens)' })
+  @ApiOperation({ summary: 'Force AI analysis for a conversation (dynamic token cost)' })
   @ApiParam({
     name: 'phoneNumber',
     description: 'Phone number (e.g., 628123456789)',
@@ -242,14 +242,15 @@ export class AnalyticsController {
     @CurrentUser('id') userId: string,
     @Param('phoneNumber') phoneNumber: string,
   ) {
-    // Check token balance first (3 tokens for analytics)
+    // Check token balance first (minimum ~40 tokens for analytics)
+    const minTokensRequired = 40;
     const balance = await this.aiTokenService.checkBalance(
       userId,
-      AiFeatureType.ANALYTICS,
+      minTokensRequired,
     );
     if (!balance.hasEnough) {
       throw new BadRequestException(
-        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+        `Insufficient AI tokens. Required: ~${minTokensRequired}, Available: ${balance.balance}`,
       );
     }
 
@@ -258,10 +259,19 @@ export class AnalyticsController {
       phoneNumber,
     );
 
-    // Deduct tokens for analytics (auto-calculated: 3 tokens)
-    await this.aiTokenService.useTokens(userId, AiFeatureType.ANALYTICS);
+    // Deduct tokens based on actual Gemini usage (dynamic pricing)
+    if (result.tokenUsage.platformTokens > 0) {
+      await this.aiTokenService.useTokens(
+        userId,
+        AiFeatureType.ANALYTICS,
+        result.tokenUsage.platformTokens,
+      );
+    }
 
-    return result;
+    return {
+      ...result.insight,
+      tokensUsed: result.tokenUsage.platformTokens,
+    };
   }
 
   // ==================== Helper ====================
