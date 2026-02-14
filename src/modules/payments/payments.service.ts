@@ -4,6 +4,8 @@ import {
   BadRequestException,
   Logger,
   UnauthorizedException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -20,6 +22,7 @@ import {
 } from './dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../../database/entities/user.entity';
+import { AiTokenService } from '../ai/services/ai-token.service';
 
 @Injectable()
 export class PaymentsService {
@@ -35,6 +38,8 @@ export class PaymentsService {
     private readonly packagesService: PackagesService,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => AiTokenService))
+    private readonly aiTokenService: AiTokenService,
   ) {
     // Try both methods to get the key
     const serverKey =
@@ -262,6 +267,22 @@ export class PaymentsService {
       signature_key,
     } = notification;
 
+    this.logger.log(
+      `Received notification for order: ${order_id}, status: ${transaction_status}`,
+    );
+
+    // Check if this is a token purchase (TKN- prefix)
+    if (order_id.startsWith('TKN-')) {
+      this.logger.log(`[TOKEN] Delegating to AiTokenService for ${order_id}`);
+      const result = await this.aiTokenService.handleNotification(notification);
+      if (result.handled) {
+        this.logger.log(
+          `[TOKEN] Successfully handled token purchase: ${order_id}`,
+        );
+        return;
+      }
+    }
+
     // Verify signature hash from Midtrans
     const serverKey = this.configService.get<string>('midtrans.serverKey');
     const expectedHash = crypto
@@ -273,10 +294,6 @@ export class PaymentsService {
       this.logger.warn(`Invalid Midtrans signature for order: ${order_id}`);
       throw new UnauthorizedException('Invalid signature');
     }
-
-    this.logger.log(
-      `Received notification for order: ${order_id}, status: ${transaction_status}`,
-    );
 
     const payment = await this.paymentRepository.findOne({
       where: { orderId: order_id },

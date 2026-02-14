@@ -77,14 +77,14 @@ export class UpdateAutoReplySettingsDto {
 
   @ApiPropertyOptional({
     description:
-      'Cooldown in minutes before auto-replying to same contact again',
+      'Cooldown in minutes before auto-replying to same contact again (0 = no cooldown)',
     example: 60,
-    minimum: 1,
+    minimum: 0,
     maximum: 1440,
   })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0) // 0 = no cooldown
   @Max(1440) // 24 hours max
   @Type(() => Number)
   autoReplyCooldownMinutes?: number;

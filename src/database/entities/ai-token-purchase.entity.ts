@@ -9,7 +9,6 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { AiTokenPackage } from './ai-token-package.entity';
-import { Payment } from './payment.entity';
 
 export enum AiTokenPurchaseStatus {
   PENDING = 'pending',
@@ -20,6 +19,7 @@ export enum AiTokenPurchaseStatus {
 
 @Entity('ai_token_purchases')
 @Index(['userId', 'createdAt'])
+@Index(['orderId'], { unique: true, where: '"orderId" IS NOT NULL' })
 export class AiTokenPurchase {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -38,18 +38,24 @@ export class AiTokenPurchase {
   @Column()
   packageId: string;
 
-  @ManyToOne(() => Payment, { nullable: true })
-  @JoinColumn({ name: 'paymentId' })
-  payment: Payment;
-
-  @Column({ nullable: true, unique: true })
-  paymentId: string;
-
   @Column()
   tokenAmount: number; // Total tokens received (base + bonus)
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   price: number;
+
+  // Midtrans integration
+  @Column({ nullable: true, unique: true })
+  orderId: string; // Midtrans order ID (e.g., "TKN-1234567890-abc123")
+
+  @Column({ nullable: true })
+  snapToken: string; // Midtrans snap token
+
+  @Column({ nullable: true })
+  transactionId: string; // Midtrans transaction ID
+
+  @Column({ nullable: true })
+  paymentType: string; // e.g., "bank_transfer", "gopay", etc.
 
   @Column({
     type: 'enum',

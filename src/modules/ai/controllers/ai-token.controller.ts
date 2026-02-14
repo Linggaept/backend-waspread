@@ -111,23 +111,44 @@ export class AiTokenController {
 
   @Post('purchase')
   @ApiOperation({
-    summary: 'Initiate token purchase',
-    description: 'Creates a pending purchase record. Use with payment flow.',
+    summary: 'Initiate token purchase with Midtrans',
+    description:
+      'Creates a purchase and returns Midtrans snap token for payment.',
   })
-  @ApiResponse({ status: 201, description: 'Purchase initiated' })
+  @ApiResponse({
+    status: 201,
+    description: 'Purchase created with payment URL',
+    schema: {
+      type: 'object',
+      properties: {
+        purchaseId: { type: 'string' },
+        orderId: { type: 'string' },
+        tokenAmount: { type: 'number', example: 110 },
+        price: { type: 'number', example: 45000 },
+        status: { type: 'string', example: 'pending' },
+        snapToken: { type: 'string' },
+        redirectUrl: { type: 'string' },
+      },
+    },
+  })
   async purchaseTokens(
     @CurrentUser('id') userId: string,
+    @CurrentUser('email') userEmail: string,
     @Body() dto: PurchaseTokenDto,
   ) {
-    const purchase = await this.aiTokenService.createPurchase(
+    const result = await this.aiTokenService.createPurchase(
       userId,
+      userEmail,
       dto.packageId,
     );
     return {
-      purchaseId: purchase.id,
-      tokenAmount: purchase.tokenAmount,
-      price: purchase.price,
-      status: purchase.status,
+      purchaseId: result.purchase.id,
+      orderId: result.purchase.orderId,
+      tokenAmount: result.purchase.tokenAmount,
+      price: result.purchase.price,
+      status: result.purchase.status,
+      snapToken: result.snapToken,
+      redirectUrl: result.redirectUrl,
     };
   }
 

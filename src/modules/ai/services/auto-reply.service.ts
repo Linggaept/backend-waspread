@@ -470,6 +470,11 @@ export class AutoReplyService {
     phoneNumber: string,
     cooldownMinutes: number,
   ): Promise<boolean> {
+    // 0 = no cooldown, always allow
+    if (cooldownMinutes === 0) {
+      return false;
+    }
+
     const cutoffTime = new Date();
     cutoffTime.setMinutes(cutoffTime.getMinutes() - cooldownMinutes);
 

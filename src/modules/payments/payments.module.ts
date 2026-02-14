@@ -7,6 +7,7 @@ import { User } from '../../database/entities/user.entity';
 import { PackagesModule } from '../packages/packages.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PackagesModule,
     forwardRef(() => SubscriptionsModule),
     NotificationsModule,
+    forwardRef(() => AiModule),
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService],

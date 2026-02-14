@@ -5,9 +5,13 @@ import {
   BadRequestException,
   ForbiddenException,
   OnModuleInit,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
+import * as crypto from 'crypto';
+import * as Midtrans from 'midtrans-client';
 import { User } from '../../../database/entities/user.entity';
 import { AiTokenPackage } from '../../../database/entities/ai-token-package.entity';
 import {
@@ -24,6 +28,7 @@ import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
 @Injectable()
 export class AiTokenService implements OnModuleInit {
   private readonly logger = new Logger(AiTokenService.name);
+  private snap: Midtrans.Snap;
 
   constructor(
     @InjectRepository(User)
@@ -35,7 +40,39 @@ export class AiTokenService implements OnModuleInit {
     @InjectRepository(AiTokenUsage)
     private readonly usageRepository: Repository<AiTokenUsage>,
     private readonly whatsAppGateway: WhatsAppGateway,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    // Initialize Midtrans Snap
+    const serverKey =
+      this.configService.get<string>('midtrans.serverKey') ||
+      process.env.MIDTRANS_SERVER_KEY;
+    const clientKey =
+      this.configService.get<string>('midtrans.clientKey') ||
+      process.env.MIDTRANS_CLIENT_KEY;
+    const configIsProduction = this.configService.get<boolean>(
+      'midtrans.isProduction',
+    );
+    const isProduction =
+      configIsProduction !== undefined
+        ? configIsProduction
+        : process.env.MIDTRANS_IS_PRODUCTION === 'true';
+
+    if (!serverKey || !clientKey) {
+      this.logger.warn(
+        '[AI-TOKEN] Midtrans keys not configured. Token purchase will not work.',
+      );
+    } else {
+      this.logger.log(
+        `[AI-TOKEN] Midtrans initialized (${isProduction ? 'PRODUCTION' : 'SANDBOX'} mode)`,
+      );
+    }
+
+    this.snap = new Midtrans.Snap({
+      isProduction: Boolean(isProduction),
+      serverKey: serverKey,
+      clientKey: clientKey,
+    });
+  }
 
   async onModuleInit(): Promise<void> {
     // Seed default packages if none exist
@@ -329,61 +366,229 @@ export class AiTokenService implements OnModuleInit {
 
   async createPurchase(
     userId: string,
+    userEmail: string,
     packageId: string,
-  ): Promise<AiTokenPurchase> {
+  ): Promise<{
+    purchase: AiTokenPurchase;
+    snapToken: string;
+    redirectUrl: string;
+  }> {
     const pkg = await this.getPackage(packageId);
 
     if (!pkg.isActive) {
       throw new BadRequestException('This token package is not available');
     }
 
+    // Check for existing pending purchase (prevent double-click)
+    const existingPending = await this.purchaseRepository.findOne({
+      where: {
+        userId,
+        packageId,
+        status: AiTokenPurchaseStatus.PENDING,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (existingPending) {
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      if (existingPending.createdAt > thirtyMinutesAgo && existingPending.snapToken) {
+        this.logger.log(
+          `[AI-TOKEN] Returning existing pending purchase for user ${userId}`,
+        );
+        const isProduction = this.configService.get<boolean>('midtrans.isProduction');
+        return {
+          purchase: existingPending,
+          snapToken: existingPending.snapToken,
+          redirectUrl: `https://app.${isProduction ? '' : 'sandbox.'}midtrans.com/snap/v2/vtweb/${existingPending.snapToken}`,
+        };
+      }
+      // Expire old pending purchase
+      existingPending.status = AiTokenPurchaseStatus.EXPIRED;
+      await this.purchaseRepository.save(existingPending);
+    }
+
+    // Generate unique order ID with TKN prefix for token purchases
+    const orderId = `TKN-${Date.now()}-${crypto.randomUUID().substring(0, 8)}`;
+
+    // Create purchase record
     const purchase = this.purchaseRepository.create({
       userId,
       packageId,
       tokenAmount: pkg.tokenAmount + pkg.bonusTokens,
       price: pkg.price,
+      orderId,
       status: AiTokenPurchaseStatus.PENDING,
     });
 
-    return this.purchaseRepository.save(purchase);
+    await this.purchaseRepository.save(purchase);
+
+    // Create Midtrans transaction
+    const transactionDetails = {
+      order_id: orderId,
+      gross_amount: Number(pkg.price),
+    };
+
+    const customerDetails = {
+      email: userEmail,
+    };
+
+    const itemDetails = [
+      {
+        id: pkg.id,
+        price: Number(pkg.price),
+        quantity: 1,
+        name: `${pkg.name} - ${pkg.tokenAmount + pkg.bonusTokens} AI Tokens`,
+      },
+    ];
+
+    try {
+      const snapResponse = await this.snap.createTransaction({
+        transaction_details: transactionDetails,
+        customer_details: customerDetails,
+        item_details: itemDetails,
+      });
+
+      // Update purchase with snap token
+      purchase.snapToken = snapResponse.token;
+      await this.purchaseRepository.save(purchase);
+
+      this.logger.log(
+        `[AI-TOKEN] Created purchase ${orderId} for user ${userId}, package ${pkg.name}`,
+      );
+
+      return {
+        purchase,
+        snapToken: snapResponse.token,
+        redirectUrl: snapResponse.redirect_url,
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `[AI-TOKEN] Failed to create Midtrans transaction: ${error.message}`,
+      );
+      purchase.status = AiTokenPurchaseStatus.FAILED;
+      await this.purchaseRepository.save(purchase);
+      throw new BadRequestException(
+        `Failed to create payment: ${error.message}`,
+      );
+    }
   }
 
-  async completePurchase(
-    purchaseId: string,
-    paymentId: string,
-  ): Promise<AiTokenPurchase> {
+  /**
+   * Handle Midtrans webhook notification for token purchases
+   */
+  async handleNotification(notification: {
+    order_id: string;
+    transaction_status: string;
+    fraud_status?: string;
+    transaction_id?: string;
+    payment_type?: string;
+    status_code?: string;
+    gross_amount?: string;
+    signature_key?: string;
+  }): Promise<{ handled: boolean; purchase?: AiTokenPurchase }> {
+    const { order_id, status_code, gross_amount, signature_key } = notification;
+
+    // Only handle token purchases (TKN- prefix)
+    if (!order_id.startsWith('TKN-')) {
+      return { handled: false };
+    }
+
+    // Require signature fields for verification
+    if (!status_code || !gross_amount || !signature_key) {
+      this.logger.warn(
+        `[AI-TOKEN] Missing signature fields for order: ${order_id}`,
+      );
+      return { handled: false };
+    }
+
+    // Verify signature
+    const serverKey = this.configService.get<string>('midtrans.serverKey');
+    const expectedHash = crypto
+      .createHash('sha512')
+      .update(`${order_id}${status_code}${gross_amount}${serverKey}`)
+      .digest('hex');
+
+    if (expectedHash !== signature_key) {
+      this.logger.warn(`[AI-TOKEN] Invalid signature for order: ${order_id}`);
+      throw new UnauthorizedException('Invalid signature');
+    }
+
     const purchase = await this.purchaseRepository.findOne({
-      where: { id: purchaseId },
+      where: { orderId: order_id },
+      relations: ['package'],
     });
 
     if (!purchase) {
-      throw new NotFoundException('Purchase not found');
+      this.logger.warn(`[AI-TOKEN] Purchase not found for order: ${order_id}`);
+      return { handled: true };
     }
 
-    if (purchase.status === AiTokenPurchaseStatus.SUCCESS) {
-      this.logger.warn(
-        `[AI-TOKEN] Purchase ${purchaseId} already completed, skipping`,
-      );
-      return purchase;
+    const previousStatus = purchase.status;
+
+    // Update transaction info
+    if (notification.transaction_id) {
+      purchase.transactionId = notification.transaction_id;
+    }
+    if (notification.payment_type) {
+      purchase.paymentType = notification.payment_type;
     }
 
-    purchase.status = AiTokenPurchaseStatus.SUCCESS;
-    purchase.paymentId = paymentId;
-    purchase.completedAt = new Date();
+    // Determine status
+    const { transaction_status, fraud_status } = notification;
+
+    if (
+      transaction_status === 'capture' ||
+      transaction_status === 'settlement'
+    ) {
+      if (fraud_status === 'accept' || !fraud_status) {
+        purchase.status = AiTokenPurchaseStatus.SUCCESS;
+        purchase.completedAt = new Date();
+
+        // Only add tokens if not already processed (idempotent)
+        if (previousStatus !== AiTokenPurchaseStatus.SUCCESS) {
+          await this.addTokens(
+            purchase.userId,
+            purchase.tokenAmount,
+            `Purchase: ${purchase.id}`,
+          );
+
+          // Notify via WebSocket
+          this.whatsAppGateway.sendAiTokenPurchaseCompleted(purchase.userId, {
+            purchaseId: purchase.id,
+            tokenAmount: purchase.tokenAmount,
+            newBalance: (await this.getBalance(purchase.userId)).balance,
+          });
+
+          this.logger.log(
+            `[AI-TOKEN] Purchase ${order_id} completed. Added ${purchase.tokenAmount} tokens`,
+          );
+        }
+      } else {
+        purchase.status = AiTokenPurchaseStatus.FAILED;
+      }
+    } else if (
+      transaction_status === 'deny' ||
+      transaction_status === 'cancel' ||
+      transaction_status === 'failure'
+    ) {
+      purchase.status = AiTokenPurchaseStatus.FAILED;
+    } else if (transaction_status === 'expire') {
+      purchase.status = AiTokenPurchaseStatus.EXPIRED;
+    }
+
     await this.purchaseRepository.save(purchase);
-
-    // Add tokens to user
-    await this.addTokens(
-      purchase.userId,
-      purchase.tokenAmount,
-      `Purchase: ${purchaseId}`,
-    );
-
     this.logger.log(
-      `[AI-TOKEN] Purchase ${purchaseId} completed. Added ${purchase.tokenAmount} tokens to user ${purchase.userId}`,
+      `[AI-TOKEN] Purchase ${order_id} status: ${previousStatus} -> ${purchase.status}`,
     );
 
-    return purchase;
+    return { handled: true, purchase };
+  }
+
+  async getPurchaseByOrderId(orderId: string): Promise<AiTokenPurchase | null> {
+    return this.purchaseRepository.findOne({
+      where: { orderId },
+      relations: ['package'],
+    });
   }
 
   async failPurchase(purchaseId: string): Promise<AiTokenPurchase> {
@@ -418,12 +623,6 @@ export class AiTokenService implements OnModuleInit {
     });
 
     return { data, total, page, limit };
-  }
-
-  async getPurchaseByPaymentId(paymentId: string): Promise<AiTokenPurchase | null> {
-    return this.purchaseRepository.findOne({
-      where: { paymentId },
-    });
   }
 
   // ==================== Usage History ====================
