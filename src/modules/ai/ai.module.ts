@@ -22,6 +22,7 @@ import { AiTokenPurchase } from '../../database/entities/ai-token-purchase.entit
 import { AiTokenUsage } from '../../database/entities/ai-token-usage.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { ChatsModule } from '../chats/chats.module';
 import { FeatureGuard, RolesGuard } from '../auth/guards';
 
 @Module({
@@ -43,6 +44,7 @@ import { FeatureGuard, RolesGuard } from '../auth/guards';
     }),
     SubscriptionsModule,
     forwardRef(() => WhatsAppModule),
+    forwardRef(() => ChatsModule),
     MulterModule.register({
       storage: diskStorage({
         destination: path.join(process.cwd(), 'uploads', 'temp'),

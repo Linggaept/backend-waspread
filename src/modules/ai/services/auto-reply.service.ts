@@ -14,7 +14,7 @@ import { AiFeatureType } from '../../../database/entities/ai-token-usage.entity'
 import { AiService } from '../ai.service';
 import { AiTokenService } from './ai-token.service';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
-import { WhatsAppService } from '../../whatsapp/whatsapp.service';
+import { ChatsService } from '../../chats/chats.service';
 import {
   UpdateAutoReplySettingsDto,
   AddBlacklistDto,
@@ -45,7 +45,8 @@ export class AutoReplyService {
     @Inject(forwardRef(() => AiTokenService))
     private readonly aiTokenService: AiTokenService,
     private readonly whatsAppGateway: WhatsAppGateway,
-    private readonly whatsAppService: WhatsAppService,
+    @Inject(forwardRef(() => ChatsService))
+    private readonly chatsService: ChatsService,
   ) {}
 
   /**
@@ -221,21 +222,17 @@ export class AutoReplyService {
         }
       }
 
-      // Send message via WhatsApp
-      const result = await this.whatsAppService.sendMessage(
+      // Send message via ChatsService (stores in ChatMessage automatically)
+      const chatMessage = await this.chatsService.sendTextMessage(
         userId,
         phoneNumber,
         replyMessage,
       );
 
-      if (!result.success) {
-        throw new Error('Failed to send WhatsApp message');
-      }
-
       // Update log
       log.status = AutoReplyStatus.SENT;
       log.replyMessage = replyMessage;
-      log.whatsappMessageId = result.messageId || null;
+      log.whatsappMessageId = chatMessage.whatsappMessageId || null;
       log.sentAt = new Date();
       await this.logRepository.save(log);
 
