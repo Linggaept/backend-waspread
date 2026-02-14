@@ -9,7 +9,7 @@ Backend API untuk aplikasi SaaS pengiriman pesan WhatsApp massal (Blasting), dil
 - **Database**: PostgreSQL
 - **ORM**: TypeORM
 - **Queue**: BullMQ (Redis)
-- **WhatsApp Engine**: whatsapp-web.js (Puppeteer)
+- **WhatsApp Engine**: Baileys (WebSocket-based, no Puppeteer/Chromium)
 - **Payment Gateway**: Midtrans
 - **Documentation**: Swagger / OpenAPI
 - **Containerization**: Docker & Docker Compose
@@ -78,7 +78,7 @@ Jika Anda ingin menjalankan secara manual di local machine:
    ```
 4. **Jalankan Migration** (jika `synchronize: false`):
    ```bash
-   npm run typeorm migration:run
+   npm run migration:run
    ```
 5. **Start Server**:
    ```bash
@@ -113,11 +113,11 @@ Untuk panduan testing manual endpoint-endpoint utama (Auth, WhatsApp Connect, Bl
 - **Error Connect ECONNREFUSED (DB)**:
   - Cek apakah container database jalan: `docker ps`.
   - Pastikan tidak ada service lain yang menggunakan port 5433 (atau 5432 internal).
-- **Error WhatsApp Browser/Puppeteer**:
-  - Jika muncul error library linux (`qemu-x86_64` atau library missing), pastikan menggunakan `Dockerfile` terbaru yang sudah menginstal Chromium secara manual.
-  - Rebuild image: `docker-compose build --no-cache`.
+- **WhatsApp Session Disconnected**:
+  - Panggil `DELETE /whatsapp/disconnect` lalu `POST /whatsapp/connect` untuk scan QR baru.
+  - Cek status session via `GET /whatsapp/status`.
 - **Port Conflict**:
-  - Jika port 3000 terpakai, ubah `APP_PORT` di `.env` dan restart docker.
+  - Jika port terpakai, ubah `APP_PORT` di `.env` dan restart docker.
 
 ---
 

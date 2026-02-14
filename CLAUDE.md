@@ -18,6 +18,7 @@ npm run format             # Prettier formatting
 # Testing
 npm run test                           # Run all Jest unit tests
 npm run test:watch                     # Jest watch mode
+npm run test:cov                       # Run tests with coverage report
 npm run test:e2e                       # End-to-end tests
 npm run test -- --testPathPattern=auth # Run tests matching pattern
 npm run test -- path/to/file.spec.ts   # Run specific test file
@@ -188,10 +189,10 @@ Errors use `GlobalExceptionFilter` with standardized codes (BAD_REQUEST, UNAUTHO
 Environment variables configured via `.env` (see `.env.example`):
 
 **Required:**
-- `DB_*` - PostgreSQL connection (use `DB_HOST=postgres` in Docker)
+- `DB_*` - PostgreSQL connection (use `DB_HOST=postgres` in Docker, set `DB_SSL=true` for production)
 - `REDIS_*` - Redis connection
 - `JWT_SECRET`, `JWT_EXPIRES_IN` - Authentication (expires in seconds)
-- `MIDTRANS_*` - Payment gateway credentials
+- `MIDTRANS_*` - Payment gateway credentials (`MIDTRANS_IS_PRODUCTION=false` for sandbox)
 - `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASS` - SMTP configuration
 
 **Optional:**
