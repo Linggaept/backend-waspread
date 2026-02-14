@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   NotFoundException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -18,13 +19,14 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
+import { JwtAuthGuard, FeatureGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequireFeature } from '../auth/decorators/feature.decorator';
 import { AnalyticsService } from './services/analytics.service';
 import { FunnelTrackerService } from './services/funnel-tracker.service';
 import { ClosingInsightService } from './services/closing-insight.service';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { AiTokenService } from '../ai/services/ai-token.service';
+import { AiFeatureType } from '../../database/entities/ai-token-usage.entity';
 import {
   AnalyticsQueryDto,
   FunnelQueryDto,
@@ -45,7 +47,7 @@ export class AnalyticsController {
     private readonly analyticsService: AnalyticsService,
     private readonly funnelTrackerService: FunnelTrackerService,
     private readonly closingInsightService: ClosingInsightService,
-    private readonly subscriptionsService: SubscriptionsService,
+    private readonly aiTokenService: AiTokenService,
   ) {}
 
   // ==================== Overview ====================
@@ -228,26 +230,36 @@ export class AnalyticsController {
   }
 
   @Post('insights/:phoneNumber/analyze')
-  @UseGuards(AiQuotaGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
-  @ApiOperation({ summary: 'Force AI analysis for a conversation' })
+  @ApiOperation({ summary: 'Force AI analysis for a conversation (3 tokens)' })
   @ApiParam({
     name: 'phoneNumber',
     description: 'Phone number (e.g., 628123456789)',
   })
   @ApiResponse({ status: 201, description: 'Analysis completed' })
-  @ApiResponse({ status: 403, description: 'AI quota exceeded' })
+  @ApiResponse({ status: 400, description: 'Insufficient AI tokens' })
   async analyzeConversation(
     @CurrentUser('id') userId: string,
     @Param('phoneNumber') phoneNumber: string,
   ) {
+    // Check token balance first (3 tokens for analytics)
+    const balance = await this.aiTokenService.checkBalance(
+      userId,
+      AiFeatureType.ANALYTICS,
+    );
+    if (!balance.hasEnough) {
+      throw new BadRequestException(
+        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+      );
+    }
+
     const result = await this.closingInsightService.reanalyze(
       userId,
       phoneNumber,
     );
 
-    // Deduct AI quota after successful analysis
-    await this.subscriptionsService.useAiQuota(userId, 1);
+    // Deduct tokens for analytics (auto-calculated: 3 tokens)
+    await this.aiTokenService.useTokens(userId, AiFeatureType.ANALYTICS);
 
     return result;
   }

@@ -17,13 +17,20 @@ export class RefactorQuotaFields1769980000000 implements MigrationInterface {
       ADD COLUMN IF NOT EXISTS "blastDailyLimit" integer NOT NULL DEFAULT 100
     `);
 
-    // Migrate data from old columns to new columns
-    await queryRunner.query(`
-      UPDATE "packages"
-      SET "blastMonthlyQuota" = COALESCE("monthlyQuota", 1000),
-          "blastDailyLimit" = COALESCE("dailyLimit", 100)
-      WHERE "blastMonthlyQuota" = 1000 AND "blastDailyLimit" = 100
+    // Migrate data from old columns to new columns (only if old columns exist)
+    const hasOldColumns = await queryRunner.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'packages' AND column_name = 'monthlyQuota'
     `);
+
+    if (hasOldColumns.length > 0) {
+      await queryRunner.query(`
+        UPDATE "packages"
+        SET "blastMonthlyQuota" = COALESCE("monthlyQuota", 1000),
+            "blastDailyLimit" = COALESCE("dailyLimit", 100)
+        WHERE "blastMonthlyQuota" = 1000 AND "blastDailyLimit" = 100
+      `);
+    }
 
     // Drop old columns from packages
     await queryRunner.query(`
@@ -64,14 +71,21 @@ export class RefactorQuotaFields1769980000000 implements MigrationInterface {
       ADD COLUMN IF NOT EXISTS "lastBlastDate" date
     `);
 
-    // Migrate data from old columns to new columns
-    await queryRunner.query(`
-      UPDATE "subscriptions"
-      SET "usedBlastQuota" = COALESCE("usedQuota", COALESCE("usedMessageQuota", 0)),
-          "todayBlastUsed" = COALESCE("todayUsed", COALESCE("todayMessageUsed", 0)),
-          "lastBlastDate" = COALESCE("lastUsedDate", COALESCE("lastMessageDate", NULL))
-      WHERE "usedBlastQuota" = 0
+    // Migrate data from old columns to new columns (only if old columns exist)
+    const hasOldSubColumns = await queryRunner.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'subscriptions' AND column_name = 'usedQuota'
     `);
+
+    if (hasOldSubColumns.length > 0) {
+      await queryRunner.query(`
+        UPDATE "subscriptions"
+        SET "usedBlastQuota" = COALESCE("usedQuota", COALESCE("usedMessageQuota", 0)),
+            "todayBlastUsed" = COALESCE("todayUsed", COALESCE("todayMessageUsed", 0)),
+            "lastBlastDate" = COALESCE("lastUsedDate", COALESCE("lastMessageDate", NULL))
+        WHERE "usedBlastQuota" = 0
+      `);
+    }
 
     // Drop old columns from subscriptions
     await queryRunner.query(`

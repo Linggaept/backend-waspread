@@ -27,6 +27,11 @@ import { Product } from './entities/product.entity';
 import { FollowupCampaign } from './entities/followup-campaign.entity';
 import { FollowupMessage } from './entities/followup-message.entity';
 import { ContactFollowup } from './entities/contact-followup.entity';
+import { AutoReplyBlacklist } from './entities/auto-reply-blacklist.entity';
+import { AutoReplyLog } from './entities/auto-reply-log.entity';
+import { AiTokenPackage } from './entities/ai-token-package.entity';
+import { AiTokenPurchase } from './entities/ai-token-purchase.entity';
+import { AiTokenUsage } from './entities/ai-token-usage.entity';
 
 @Module({
   imports: [
@@ -74,10 +79,15 @@ import { ContactFollowup } from './entities/contact-followup.entity';
             FollowupCampaign,
             FollowupMessage,
             ContactFollowup,
+            AutoReplyBlacklist,
+            AutoReplyLog,
+            AiTokenPackage,
+            AiTokenPurchase,
+            AiTokenUsage,
           ],
           migrations: [__dirname + '/migrations/*{.ts,.js}'],
           // IMPORTANT: synchronize is disabled in production to prevent data loss
-          synchronize: isProduction,
+          synchronize: !isProduction,
           logging: !isProduction,
           extra: {
             timezone: 'UTC',

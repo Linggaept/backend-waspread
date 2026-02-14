@@ -19,6 +19,8 @@ import { LeadsModule } from '../leads/leads.module';
 import { LeadsService } from '../leads/leads.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FunnelTrackerService } from '../analytics/services/funnel-tracker.service';
+import { AiModule } from '../ai/ai.module';
+import { AutoReplyService } from '../ai/services/auto-reply.service';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { FunnelTrackerService } from '../analytics/services/funnel-tracker.servi
     UploadsModule,
     forwardRef(() => LeadsModule),
     forwardRef(() => AnalyticsModule),
+    forwardRef(() => AiModule),
     MulterModule.register({
       storage: diskStorage({
         destination: path.join(process.cwd(), 'uploads', 'temp'),
@@ -58,6 +61,7 @@ export class ChatsModule implements OnModuleInit {
     private readonly whatsAppGateway: WhatsAppGateway,
     private readonly leadsService: LeadsService,
     private readonly funnelTrackerService: FunnelTrackerService,
+    private readonly autoReplyService: AutoReplyService,
   ) {}
 
   onModuleInit() {
@@ -83,6 +87,18 @@ export class ChatsModule implements OnModuleInit {
               .onMessageReceived(userId, phoneNumber, message.body)
               .catch((err) => {
                 this.logger.error(`Failed to update funnel: ${err}`);
+              });
+
+            // Trigger auto-reply for incoming messages (fire and forget)
+            this.autoReplyService
+              .handleIncomingMessage(
+                userId,
+                phoneNumber,
+                message.id?.id || '',
+                message.body,
+              )
+              .catch((err) => {
+                this.logger.error(`Auto-reply error: ${err}`);
               });
           }
         }

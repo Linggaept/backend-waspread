@@ -48,6 +48,10 @@ export class User {
   })
   status: UserStatus;
 
+  // Unified AI Token Balance (for all AI features)
+  @Column({ default: 0 })
+  aiTokenBalance: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

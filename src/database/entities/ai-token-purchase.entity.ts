@@ -1,0 +1,66 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+} from 'typeorm';
+import { User } from './user.entity';
+import { AiTokenPackage } from './ai-token-package.entity';
+import { Payment } from './payment.entity';
+
+export enum AiTokenPurchaseStatus {
+  PENDING = 'pending',
+  SUCCESS = 'success',
+  FAILED = 'failed',
+  EXPIRED = 'expired',
+}
+
+@Entity('ai_token_purchases')
+@Index(['userId', 'createdAt'])
+export class AiTokenPurchase {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'userId' })
+  user: User;
+
+  @Column()
+  userId: string;
+
+  @ManyToOne(() => AiTokenPackage)
+  @JoinColumn({ name: 'packageId' })
+  package: AiTokenPackage;
+
+  @Column()
+  packageId: string;
+
+  @ManyToOne(() => Payment, { nullable: true })
+  @JoinColumn({ name: 'paymentId' })
+  payment: Payment;
+
+  @Column({ nullable: true, unique: true })
+  paymentId: string;
+
+  @Column()
+  tokenAmount: number; // Total tokens received (base + bonus)
+
+  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  price: number;
+
+  @Column({
+    type: 'enum',
+    enum: AiTokenPurchaseStatus,
+    default: AiTokenPurchaseStatus.PENDING,
+  })
+  status: AiTokenPurchaseStatus;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  completedAt: Date;
+}

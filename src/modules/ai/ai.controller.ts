@@ -23,11 +23,11 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
+import { JwtAuthGuard, FeatureGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequireFeature } from '../auth/decorators/feature.decorator';
 import { AiService } from './ai.service';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { AiTokenService } from './services/ai-token.service';
 import {
   CreateKnowledgeDto,
   UpdateKnowledgeDto,
@@ -35,7 +35,12 @@ import {
   BulkDeleteKnowledgeDto,
   UpdateAiSettingsDto,
   SuggestRequestDto,
+  UpdateAutoReplySettingsDto,
+  AddBlacklistDto,
+  AutoReplyLogQueryDto,
 } from './dto';
+import { AutoReplyService } from './services/auto-reply.service';
+import { AiFeatureType } from '../../database/entities/ai-token-usage.entity';
 
 @ApiTags('AI Smart Reply')
 @ApiBearerAuth('JWT-auth')
@@ -45,7 +50,8 @@ import {
 export class AiController {
   constructor(
     private readonly aiService: AiService,
-    private readonly subscriptionsService: SubscriptionsService,
+    private readonly aiTokenService: AiTokenService,
+    private readonly autoReplyService: AutoReplyService,
   ) {}
 
   // ==================== KNOWLEDGE BASE ====================
@@ -198,7 +204,6 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
   }
 
   @Post('knowledge/import-file-ai')
-  @UseGuards(AiQuotaGuard)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Import knowledge base from PDF/Image using AI',
@@ -270,6 +275,17 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
       );
     }
 
+    // Check token balance first (5 tokens for AI knowledge import)
+    const balance = await this.aiTokenService.checkBalance(
+      userId,
+      AiFeatureType.KNOWLEDGE_IMPORT,
+    );
+    if (!balance.hasEnough) {
+      throw new BadRequestException(
+        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+      );
+    }
+
     let filePath = file.path;
     let mimeType = file.mimetype;
 
@@ -298,8 +314,8 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
       knowledgeItems,
     );
 
-    // Use 1 AI quota for AI-powered import
-    await this.subscriptionsService.useAiQuota(userId, 1);
+    // Use tokens for AI-powered import (auto-calculated: 5 tokens)
+    await this.aiTokenService.useTokens(userId, AiFeatureType.KNOWLEDGE_IMPORT);
 
     return result;
   }
@@ -339,7 +355,6 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
   // ==================== SUGGEST (Core Feature) ====================
 
   @Post('suggest')
-  @UseGuards(AiQuotaGuard)
   @ApiOperation({
     summary: 'Generate AI reply suggestions',
     description:
@@ -375,15 +390,162 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     },
   })
   @ApiResponse({ status: 400, description: 'AI disabled or error' })
-  @ApiResponse({ status: 403, description: 'AI quota exceeded' })
+  @ApiResponse({ status: 403, description: 'Insufficient AI tokens' })
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // Max 10 AI calls per minute
   async generateSuggestions(
     @CurrentUser('id') userId: string,
     @Body() dto: SuggestRequestDto,
   ) {
+    // Check token balance first (1 token for suggestions)
+    const balance = await this.aiTokenService.checkBalance(
+      userId,
+      AiFeatureType.SUGGEST,
+    );
+    if (!balance.hasEnough) {
+      throw new BadRequestException(
+        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+      );
+    }
+
     const result = await this.aiService.generateSuggestions(userId, dto);
-    // Use 1 AI quota per suggestion request
-    await this.subscriptionsService.useAiQuota(userId, 1);
+
+    // Use tokens for suggestion (auto-calculated: 1 token)
+    await this.aiTokenService.useTokens(userId, AiFeatureType.SUGGEST);
+
     return result;
+  }
+
+  // ==================== AUTO-REPLY ====================
+
+  @Get('auto-reply/settings')
+  @ApiOperation({ summary: 'Get auto-reply settings' })
+  @ApiResponse({
+    status: 200,
+    description: 'Auto-reply settings',
+    schema: {
+      type: 'object',
+      properties: {
+        autoReplyEnabled: { type: 'boolean' },
+        workingHoursStart: { type: 'string', nullable: true, example: '08:00' },
+        workingHoursEnd: { type: 'string', nullable: true, example: '21:00' },
+        workingHoursEnabled: { type: 'boolean' },
+        autoReplyDelayMin: { type: 'number', example: 5 },
+        autoReplyDelayMax: { type: 'number', example: 10 },
+        autoReplyCooldownMinutes: { type: 'number', example: 60 },
+        autoReplyFallbackMessage: { type: 'string', nullable: true },
+      },
+    },
+  })
+  getAutoReplySettings(@CurrentUser('id') userId: string) {
+    return this.autoReplyService.getAutoReplySettings(userId);
+  }
+
+  @Put('auto-reply/settings')
+  @ApiOperation({ summary: 'Update auto-reply settings' })
+  @ApiResponse({ status: 200, description: 'Settings updated' })
+  updateAutoReplySettings(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateAutoReplySettingsDto,
+  ) {
+    return this.autoReplyService.updateAutoReplySettings(userId, dto);
+  }
+
+  @Get('auto-reply/blacklist')
+  @ApiOperation({ summary: 'Get blacklisted phone numbers' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of blacklisted numbers',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              phoneNumber: { type: 'string' },
+              reason: { type: 'string', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+        total: { type: 'number' },
+        page: { type: 'number' },
+        limit: { type: 'number' },
+      },
+    },
+  })
+  getBlacklist(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.autoReplyService.getBlacklist(userId, page, limit);
+  }
+
+  @Post('auto-reply/blacklist')
+  @ApiOperation({ summary: 'Add phone number to blacklist' })
+  @ApiResponse({ status: 201, description: 'Number added to blacklist' })
+  addToBlacklist(
+    @CurrentUser('id') userId: string,
+    @Body() dto: AddBlacklistDto,
+  ) {
+    return this.autoReplyService.addToBlacklist(userId, dto);
+  }
+
+  @Delete('auto-reply/blacklist/:phoneNumber')
+  @ApiOperation({ summary: 'Remove phone number from blacklist' })
+  @ApiResponse({ status: 200, description: 'Number removed from blacklist' })
+  async removeFromBlacklist(
+    @CurrentUser('id') userId: string,
+    @Param('phoneNumber') phoneNumber: string,
+  ) {
+    const removed = await this.autoReplyService.removeFromBlacklist(
+      userId,
+      phoneNumber,
+    );
+    return { removed };
+  }
+
+  @Get('auto-reply/logs')
+  @ApiOperation({ summary: 'Get auto-reply activity logs' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of auto-reply logs',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              phoneNumber: { type: 'string' },
+              incomingMessageBody: { type: 'string' },
+              replyMessage: { type: 'string', nullable: true },
+              status: {
+                type: 'string',
+                enum: ['queued', 'sent', 'failed', 'skipped'],
+              },
+              skipReason: { type: 'string', nullable: true },
+              delaySeconds: { type: 'number', nullable: true },
+              queuedAt: { type: 'string', format: 'date-time' },
+              sentAt: { type: 'string', format: 'date-time', nullable: true },
+            },
+          },
+        },
+        total: { type: 'number' },
+        page: { type: 'number' },
+        limit: { type: 'number' },
+      },
+    },
+  })
+  getLogs(
+    @CurrentUser('id') userId: string,
+    @Query() query: AutoReplyLogQueryDto,
+  ) {
+    return this.autoReplyService.getLogs(userId, query);
   }
 }

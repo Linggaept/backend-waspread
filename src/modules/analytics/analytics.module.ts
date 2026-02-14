@@ -13,8 +13,9 @@ import { AnalyticsService } from './services/analytics.service';
 import { FunnelTrackerService } from './services/funnel-tracker.service';
 import { ClosingInsightService } from './services/closing-insight.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { AiModule } from '../ai/ai.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
-import { FeatureGuard, AiQuotaGuard } from '../auth/guards';
+import { FeatureGuard } from '../auth/guards';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { FeatureGuard, AiQuotaGuard } from '../auth/guards';
     ]),
     ScheduleModule.forRoot(),
     forwardRef(() => WhatsAppModule),
+    forwardRef(() => AiModule),
     SubscriptionsModule,
   ],
   controllers: [AnalyticsController],
@@ -37,7 +39,6 @@ import { FeatureGuard, AiQuotaGuard } from '../auth/guards';
     FunnelTrackerService,
     ClosingInsightService,
     FeatureGuard,
-    AiQuotaGuard,
   ],
   exports: [AnalyticsService, FunnelTrackerService, ClosingInsightService],
 })

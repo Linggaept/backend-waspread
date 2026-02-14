@@ -49,7 +49,7 @@ export class Package {
   @Column({ default: 0 })
   sortOrder: number;
 
-  // AI Quota (0 = unlimited)
+  // Bonus AI tokens given when subscribing to this package
   @Column({ default: 0 })
   aiQuota: number;
 
@@ -65,6 +65,9 @@ export class Package {
 
   @Column({ default: true })
   hasFollowupFeature: boolean;
+
+  @Column({ default: true })
+  hasAutoReplyFeature: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

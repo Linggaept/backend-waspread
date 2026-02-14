@@ -61,7 +61,7 @@ export class Subscription {
   @Column({ type: 'date', nullable: true })
   lastBlastDate: Date;
 
-  // AI Quota Tracking
+  // Legacy: AI Quota Tracking (deprecated - use User.aiTokenBalance instead)
   @Column({ default: 0 })
   usedAiQuota: number;
 

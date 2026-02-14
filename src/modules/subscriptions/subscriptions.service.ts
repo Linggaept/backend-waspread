@@ -429,6 +429,32 @@ export class SubscriptionsService {
     return { hasAccess: true };
   }
 
+  // ==================== Auto-Reply Feature ====================
+
+  async checkAutoReplyFeatureAccess(
+    userId: string,
+  ): Promise<{ hasAccess: boolean; message?: string }> {
+    const subscription = await this.getActiveSubscription(userId);
+
+    if (!subscription) {
+      return { hasAccess: false, message: 'No active subscription' };
+    }
+
+    const pkg = subscription.package;
+
+    if (!pkg.hasAutoReplyFeature) {
+      return {
+        hasAccess: false,
+        message: 'Auto-reply feature is not available in your current package',
+      };
+    }
+
+    return { hasAccess: true };
+  }
+
+  // NOTE: Auto-reply quota methods removed - now using unified AI token system
+  // See AiTokenService for token balance management
+
   // ==================== AI Quota ====================
 
   async checkAiQuota(userId: string): Promise<{

@@ -574,4 +574,68 @@ export class WhatsAppGateway
   ) {
     this.server.to(`user:${userId}`).emit('followup:progress', data);
   }
+
+  // ==================== Auto-Reply Events ====================
+
+  // Send auto-reply sent notification
+  sendAutoReplySent(
+    userId: string,
+    data: {
+      phoneNumber: string;
+      message: string;
+      sentAt: Date;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('auto-reply:sent', data);
+    this.logger.debug(`Auto-reply sent to ${data.phoneNumber}`);
+  }
+
+  // Send auto-reply skipped notification
+  sendAutoReplySkipped(
+    userId: string,
+    data: {
+      phoneNumber: string;
+      reason: string;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('auto-reply:skipped', data);
+    this.logger.debug(
+      `Auto-reply skipped for ${data.phoneNumber}: ${data.reason}`,
+    );
+  }
+
+  // ==================== AI Token Events ====================
+
+  // Send AI token balance update
+  sendAiTokenUpdate(
+    userId: string,
+    data: {
+      balance: number;
+      lastUsage?: {
+        feature: string;
+        amount: number;
+        timestamp: Date;
+      };
+      added?: number;
+      reason?: string;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('aiToken:update', data);
+    this.logger.debug(`AI token update sent to user ${userId}: balance=${data.balance}`);
+  }
+
+  // Send AI token purchase completed notification
+  sendAiTokenPurchaseCompleted(
+    userId: string,
+    data: {
+      purchaseId: string;
+      tokenAmount: number;
+      newBalance: number;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('aiToken:purchased', data);
+    this.logger.log(
+      `AI token purchase completed for user ${userId}: +${data.tokenAmount} tokens`,
+    );
+  }
 }

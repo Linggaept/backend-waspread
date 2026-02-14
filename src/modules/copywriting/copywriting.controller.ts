@@ -1,4 +1,10 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -7,10 +13,11 @@ import {
 } from '@nestjs/swagger';
 import { CopywritingService } from './copywriting.service';
 import { GenerateCopyDto, GenerateCopyResponseDto } from './dto';
-import { JwtAuthGuard, FeatureGuard, AiQuotaGuard } from '../auth/guards';
+import { JwtAuthGuard, FeatureGuard } from '../auth/guards';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequireFeature } from '../auth/decorators/feature.decorator';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { AiTokenService } from '../ai/services/ai-token.service';
+import { AiFeatureType } from '../../database/entities/ai-token-usage.entity';
 
 @ApiTags('Copywriting')
 @ApiBearerAuth('JWT-auth')
@@ -20,15 +27,14 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 export class CopywritingController {
   constructor(
     private readonly copywritingService: CopywritingService,
-    private readonly subscriptionsService: SubscriptionsService,
+    private readonly aiTokenService: AiTokenService,
   ) {}
 
   @Post('generate')
-  @UseGuards(AiQuotaGuard)
   @ApiOperation({
     summary: 'Generate WhatsApp marketing copy with AI',
     description:
-      'Uses Google Gemini to generate persuasive WhatsApp marketing messages with multiple variations.',
+      'Uses Google Gemini to generate persuasive WhatsApp marketing messages with multiple variations. Costs 2 AI tokens.',
   })
   @ApiResponse({
     status: 200,
@@ -37,20 +43,33 @@ export class CopywritingController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Gemini not configured or generation failed',
+    description: 'Gemini not configured, generation failed, or insufficient tokens',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({
     status: 403,
-    description: 'AI feature not available or quota exceeded',
+    description: 'AI feature not available or insufficient tokens',
   })
   async generate(
     @CurrentUser('id') userId: string,
     @Body() dto: GenerateCopyDto,
   ): Promise<GenerateCopyResponseDto> {
+    // Check token balance first (2 tokens for copywriting)
+    const balance = await this.aiTokenService.checkBalance(
+      userId,
+      AiFeatureType.COPYWRITING,
+    );
+    if (!balance.hasEnough) {
+      throw new BadRequestException(
+        `Insufficient AI tokens. Required: ${balance.required}, Available: ${balance.balance}`,
+      );
+    }
+
     const result = await this.copywritingService.generateCopy(dto);
-    // Use 1 AI quota per generation
-    await this.subscriptionsService.useAiQuota(userId, 1);
+
+    // Use tokens for copywriting (auto-calculated: 2 tokens)
+    await this.aiTokenService.useTokens(userId, AiFeatureType.COPYWRITING);
+
     return result;
   }
 }
