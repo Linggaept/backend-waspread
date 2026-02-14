@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan } from 'typeorm';
+import { AutoReplyService } from '../ai/services/auto-reply.service';
 
 // Message retention config from ENV
 const MESSAGE_RETENTION_DAYS = parseInt(
@@ -50,6 +51,8 @@ export class ChatsService implements OnModuleInit {
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsAppGateway: WhatsAppGateway,
     private readonly uploadsService: UploadsService,
+    @Inject(forwardRef(() => AutoReplyService))
+    private readonly autoReplyService: AutoReplyService,
   ) {}
 
   onModuleInit() {
@@ -410,6 +413,13 @@ export class ChatsService implements OnModuleInit {
       }
     }
 
+    // Batch check blacklist status for auto-reply
+    const blacklistMap = new Map<string, boolean>();
+    for (const phone of phoneNumbers) {
+      const isBlacklisted = await this.autoReplyService.isBlacklisted(userId, phone);
+      blacklistMap.set(phone, !isBlacklisted); // isAutoReply = NOT blacklisted
+    }
+
     // Transform to response format
     const data = conversations.map((conv) => {
       // Prioritize: WA pushName > cached pushName
@@ -435,6 +445,7 @@ export class ChatsService implements OnModuleInit {
           ? { blastId: conv.blastId, blastName: conv.blastName || 'Blast' }
           : null,
         followUp: followupMap.get(conv.phoneNumber) || null,
+        isAutoReply: blacklistMap.get(conv.phoneNumber) ?? true,
       };
     });
 
@@ -522,6 +533,10 @@ export class ChatsService implements OnModuleInit {
       waContact?.name ||
       null;
 
+    // Check if auto-reply is enabled for this number (not blacklisted)
+    const isBlacklisted = await this.autoReplyService.isBlacklisted(userId, normalized);
+    const isAutoReply = !isBlacklisted;
+
     return {
       data,
       total,
@@ -532,6 +547,7 @@ export class ChatsService implements OnModuleInit {
         pushName: displayName,
         contactName: dbContact?.name || null,
         isPinned: !!pinnedConvo,
+        isAutoReply,
       },
     };
   }

@@ -508,6 +508,49 @@ faq,Cara Bayar,Transfer bank atau e-wallet,"bayar,transfer"
     return { removed };
   }
 
+  @Post('auto-reply/toggle/:phoneNumber')
+  @ApiOperation({
+    summary: 'Toggle auto-reply for a specific phone number',
+    description:
+      'If auto-reply is enabled for this number, it will be disabled (added to blacklist). If disabled, it will be enabled (removed from blacklist).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Auto-reply toggled',
+    schema: {
+      type: 'object',
+      properties: {
+        phoneNumber: { type: 'string', example: '6281234567890' },
+        isAutoReply: {
+          type: 'boolean',
+          description: 'New state: true = will receive auto-reply',
+        },
+      },
+    },
+  })
+  async toggleAutoReply(
+    @CurrentUser('id') userId: string,
+    @Param('phoneNumber') phoneNumber: string,
+  ) {
+    const isBlacklisted = await this.autoReplyService.isBlacklisted(
+      userId,
+      phoneNumber,
+    );
+
+    if (isBlacklisted) {
+      // Currently blacklisted (no auto-reply), remove from blacklist
+      await this.autoReplyService.removeFromBlacklist(userId, phoneNumber);
+      return { phoneNumber, isAutoReply: true };
+    } else {
+      // Currently not blacklisted (has auto-reply), add to blacklist
+      await this.autoReplyService.addToBlacklist(userId, {
+        phoneNumber,
+        reason: 'Disabled via toggle',
+      });
+      return { phoneNumber, isAutoReply: false };
+    }
+  }
+
   @Get('auto-reply/logs')
   @ApiOperation({ summary: 'Get auto-reply activity logs' })
   @ApiResponse({

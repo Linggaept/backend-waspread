@@ -31,7 +31,7 @@ import { FeatureGuard } from '../auth/guards';
     ScheduleModule.forRoot(),
     forwardRef(() => WhatsAppModule),
     forwardRef(() => AiModule),
-    SubscriptionsModule,
+    forwardRef(() => SubscriptionsModule),
   ],
   controllers: [AnalyticsController],
   providers: [

@@ -15,7 +15,7 @@ import { FeatureGuard } from '../auth/guards';
   imports: [
     TypeOrmModule.forFeature([LeadScore, LeadScoreSettings, ChatMessage]),
     forwardRef(() => WhatsAppModule),
-    SubscriptionsModule,
+    forwardRef(() => SubscriptionsModule),
     BullModule.registerQueue({
       name: 'leads',
     }),

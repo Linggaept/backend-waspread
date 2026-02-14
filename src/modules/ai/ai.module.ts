@@ -42,7 +42,7 @@ import { FeatureGuard, RolesGuard } from '../auth/guards';
     BullModule.registerQueue({
       name: 'auto-reply',
     }),
-    SubscriptionsModule,
+    forwardRef(() => SubscriptionsModule),
     forwardRef(() => WhatsAppModule),
     forwardRef(() => ChatsModule),
     MulterModule.register({

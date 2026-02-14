@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan } from 'typeorm';
@@ -16,6 +18,7 @@ import { Package } from '../../database/entities/package.entity';
 import { PackagesService } from '../packages/packages.service';
 import { WhatsAppGateway } from '../whatsapp/gateways/whatsapp.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AiTokenService } from '../ai/services/ai-token.service';
 import { SubscriptionQueryDto } from './dto';
 
 @Injectable()
@@ -39,6 +42,8 @@ export class SubscriptionsService {
     private readonly packagesService: PackagesService,
     private readonly whatsappGateway: WhatsAppGateway,
     private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => AiTokenService))
+    private readonly aiTokenService: AiTokenService,
   ) {}
 
   async activateSubscription(
@@ -98,6 +103,26 @@ export class SubscriptionsService {
     this.logger.log(
       `Subscription activated for user ${userId}, package ${pkg.name}`,
     );
+
+    // Add bonus AI tokens from package (if any)
+    if (pkg.aiQuota > 0) {
+      this.aiTokenService
+        .addTokens(
+          userId,
+          pkg.aiQuota,
+          `Subscription bonus: ${pkg.name}`,
+        )
+        .then(() => {
+          this.logger.log(
+            `Added ${pkg.aiQuota} bonus AI tokens for user ${userId} from package ${pkg.name}`,
+          );
+        })
+        .catch((err) =>
+          this.logger.error(
+            `Failed to add bonus AI tokens for user ${userId}: ${err.message}`,
+          ),
+        );
+    }
 
     // Send notification
     const user = await this.userRepository.findOne({ where: { id: userId } });
