@@ -24,6 +24,7 @@ import {
   AI_FEATURE_TOKEN_COST,
 } from '../../../database/entities/ai-token-usage.entity';
 import { WhatsAppGateway } from '../../whatsapp/gateways/whatsapp.gateway';
+import { AiTokenPricingService } from './ai-token-pricing.service';
 
 @Injectable()
 export class AiTokenService implements OnModuleInit {
@@ -41,6 +42,7 @@ export class AiTokenService implements OnModuleInit {
     private readonly usageRepository: Repository<AiTokenUsage>,
     private readonly whatsAppGateway: WhatsAppGateway,
     private readonly configService: ConfigService,
+    private readonly pricingService: AiTokenPricingService,
   ) {
     // Initialize Midtrans Snap
     const serverKey =
@@ -93,6 +95,117 @@ export class AiTokenService implements OnModuleInit {
    */
   getAllFeatureTokenCosts(): Record<AiFeatureType, number> {
     return { ...AI_FEATURE_TOKEN_COST };
+  }
+
+  /**
+   * Calculate minimum platform tokens required for a given Gemini token estimate
+   * Uses dynamic pricing configuration
+   */
+  async calculateMinTokensRequired(estimatedGeminiTokens: number): Promise<number> {
+    return this.pricingService.calculatePlatformTokens(estimatedGeminiTokens);
+  }
+
+  /**
+   * Get token info for user education
+   * Shows what 1 platform token can do based on current pricing
+   */
+  async getTokenInfo(): Promise<{
+    pricing: {
+      divisor: number;
+      geminiTokensPerPlatformToken: number;
+    };
+    capabilities: Array<{
+      feature: string;
+      name: string;
+      description: string;
+      geminiTokensPerRequest: number;
+      requestsPerToken: number;
+    }>;
+    packages: Array<{
+      name: string;
+      tokens: number;
+      price: number;
+      pricePerToken: number;
+      capabilities: Record<string, number>;
+    }>;
+  }> {
+    // Get active pricing config
+    const pricingConfig = await this.pricingService.getPricingConfig();
+    const geminiTokensPerPlatformToken = pricingConfig.divisor;
+
+    // Define feature capabilities with typical Gemini token usage
+    const featureEstimates = [
+      {
+        feature: 'auto_reply_text',
+        name: 'Auto-Reply (Teks)',
+        description: 'Balas chat otomatis dengan AI',
+        geminiTokensPerRequest: 900,
+      },
+      {
+        feature: 'auto_reply_image',
+        name: 'Auto-Reply (Gambar)',
+        description: 'Balas chat dengan analisis gambar',
+        geminiTokensPerRequest: 2500,
+      },
+      {
+        feature: 'ai_suggestion',
+        name: 'Saran Balasan AI',
+        description: 'Generate saran balasan manual',
+        geminiTokensPerRequest: 900,
+      },
+      {
+        feature: 'copywriting',
+        name: 'AI Copywriting',
+        description: 'Generate 5 variasi pesan marketing',
+        geminiTokensPerRequest: 1150,
+      },
+      {
+        feature: 'analytics',
+        name: 'Analisis Percakapan',
+        description: 'Insight AI dari percakapan',
+        geminiTokensPerRequest: 2500,
+      },
+    ];
+
+    // Calculate requests per 1 platform token
+    const capabilities = featureEstimates.map((f) => ({
+      ...f,
+      requestsPerToken: Math.floor(geminiTokensPerPlatformToken / f.geminiTokensPerRequest),
+    }));
+
+    // Get active packages and calculate capabilities per package
+    const packages = await this.packageRepository.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+
+    const packageInfo = packages.map((pkg) => {
+      const totalTokens = Number(pkg.tokenAmount) + Number(pkg.bonusTokens);
+      const pricePerToken = Math.round((Number(pkg.price) / totalTokens) * 100) / 100;
+
+      // Calculate how many requests each package can do
+      const packageCapabilities: Record<string, number> = {};
+      for (const cap of capabilities) {
+        packageCapabilities[cap.feature] = totalTokens * cap.requestsPerToken;
+      }
+
+      return {
+        name: pkg.name,
+        tokens: totalTokens,
+        price: Number(pkg.price),
+        pricePerToken,
+        capabilities: packageCapabilities,
+      };
+    });
+
+    return {
+      pricing: {
+        divisor: pricingConfig.divisor,
+        geminiTokensPerPlatformToken,
+      },
+      capabilities,
+      packages: packageInfo,
+    };
   }
 
   // ==================== Token Balance ====================

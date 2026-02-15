@@ -78,6 +78,67 @@ export class AiTokenController {
     return this.aiTokenService.getAllFeatureTokenCosts();
   }
 
+  @Get('info')
+  @ApiOperation({
+    summary: 'Get token info for user education',
+    description:
+      'Returns what 1 platform token can do based on current pricing. Useful for landing pages and user education.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token info with capabilities',
+    schema: {
+      type: 'object',
+      properties: {
+        pricing: {
+          type: 'object',
+          properties: {
+            divisor: { type: 'number', example: 20000 },
+            geminiTokensPerPlatformToken: { type: 'number', example: 20000 },
+          },
+        },
+        capabilities: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              feature: { type: 'string', example: 'auto_reply_text' },
+              name: { type: 'string', example: 'Auto-Reply (Teks)' },
+              description: {
+                type: 'string',
+                example: 'Balas chat otomatis dengan AI',
+              },
+              geminiTokensPerRequest: { type: 'number', example: 900 },
+              requestsPerToken: { type: 'number', example: 22 },
+            },
+          },
+        },
+        packages: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', example: 'Starter' },
+              tokens: { type: 'number', example: 50 },
+              price: { type: 'number', example: 25000 },
+              pricePerToken: { type: 'number', example: 500 },
+              capabilities: {
+                type: 'object',
+                example: {
+                  auto_reply_text: 1100,
+                  copywriting: 850,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  getTokenInfo() {
+    return this.aiTokenService.getTokenInfo();
+  }
+
   @Get('packages')
   @ApiOperation({ summary: 'Get available token packages' })
   @ApiResponse({

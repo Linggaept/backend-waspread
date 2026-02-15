@@ -180,10 +180,11 @@ export class AutoReplyService {
       return { shouldSkip: true, reason: 'disabled' };
     }
 
-    // 2. Check AI token balance (minimum estimate for dynamic pricing)
-    // Text: ~500 Gemini tokens = ~20 platform tokens minimum
-    // Image: ~2000 Gemini tokens = ~80 platform tokens minimum
-    const minTokensRequired = hasImage ? 80 : 20;
+    // 2. Check AI token balance (dynamic pricing based on current config)
+    // Estimate Gemini tokens: Text ~900, Image ~2500
+    // Platform tokens = Gemini tokens / divisor (from active pricing)
+    const estimatedGeminiTokens = hasImage ? 2500 : 900;
+    const minTokensRequired = await this.aiTokenService.calculateMinTokensRequired(estimatedGeminiTokens);
 
     const tokenBalance = await this.aiTokenService.checkBalance(
       userId,

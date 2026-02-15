@@ -151,6 +151,15 @@ export class CreatePackageDto {
   @IsBoolean()
   @IsOptional()
   hasFollowupFeature?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Has auto-reply feature',
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  hasAutoReplyFeature?: boolean;
 }
 
 export class UpdatePackageDto {
@@ -281,4 +290,12 @@ export class UpdatePackageDto {
   @IsBoolean()
   @IsOptional()
   hasFollowupFeature?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Has auto-reply feature',
+  })
+  @IsBoolean()
+  @IsOptional()
+  hasAutoReplyFeature?: boolean;
 }
