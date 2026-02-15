@@ -259,6 +259,7 @@ export class AutoReplyService {
       );
 
       let platformTokensUsed = 0;
+      let productImageUrl: string | null = null;
 
       try {
         const suggestions = await this.aiService.generateSuggestions(userId, {
@@ -270,6 +271,17 @@ export class AutoReplyService {
         // Use the first suggestion
         replyMessage = suggestions.suggestions[0];
         platformTokensUsed = suggestions.tokenUsage.platformTokens;
+
+        // Check if there's a matched product with image
+        if (suggestions.matchedProducts && suggestions.matchedProducts.length > 0) {
+          const productWithImage = suggestions.matchedProducts.find((p) => p.imageUrl);
+          if (productWithImage) {
+            productImageUrl = productWithImage.imageUrl;
+            this.logger.debug(
+              `[AUTO-REPLY] Found product image: ${productWithImage.name} -> ${productImageUrl}`,
+            );
+          }
+        }
 
         this.logger.debug(
           `[AUTO-REPLY] AI generated: "${replyMessage?.substring(0, 50)}..." (${platformTokensUsed} tokens)`,
@@ -289,11 +301,24 @@ export class AutoReplyService {
       }
 
       // Send message via ChatsService (stores in ChatMessage automatically)
-      const chatMessage = await this.chatsService.sendTextMessage(
-        userId,
-        phoneNumber,
-        replyMessage,
-      );
+      // If there's a product image, send with media; otherwise send text only
+      let chatMessage;
+      if (productImageUrl) {
+        this.logger.debug(`[AUTO-REPLY] Sending reply with product image: ${productImageUrl}`);
+        chatMessage = await this.chatsService.sendMediaMessage(
+          userId,
+          phoneNumber,
+          replyMessage,
+          productImageUrl,
+          'image',
+        );
+      } else {
+        chatMessage = await this.chatsService.sendTextMessage(
+          userId,
+          phoneNumber,
+          replyMessage,
+        );
+      }
 
       // Update log
       log.status = AutoReplyStatus.SENT;
@@ -326,10 +351,11 @@ export class AutoReplyService {
         message: replyMessage,
         sentAt: log.sentAt,
         hasImage: !!mediaData,
+        hasProductImage: !!productImageUrl,
       });
 
       this.logger.log(
-        `[AUTO-REPLY] Sent reply to ${phoneNumber}${mediaData ? ' (with image)' : ''}: "${replyMessage.substring(0, 50)}..."`,
+        `[AUTO-REPLY] Sent reply to ${phoneNumber}${mediaData ? ' (analyzed image)' : ''}${productImageUrl ? ' (with product image)' : ''}: "${replyMessage.substring(0, 50)}..."`,
       );
     } catch (error) {
       this.logger.error(

@@ -60,19 +60,25 @@ export class AiService {
       this.configService.get<string>('gemini.model') || 'gemini-2.0-flash';
 
     this.logger.debug(`[GEMINI] Initializing with model: ${modelName}`);
-    this.logger.debug(`[GEMINI] API Key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
+    this.logger.debug(
+      `[GEMINI] API Key present: ${!!apiKey}, length: ${apiKey?.length || 0}`,
+    );
 
     if (apiKey) {
       try {
         this.genAI = new GoogleGenerativeAI(apiKey);
         this.fileManager = new GoogleAIFileManager(apiKey);
         this.model = this.genAI.getGenerativeModel({ model: modelName });
-        this.logger.log(`[GEMINI] AI initialized successfully with model: ${modelName}`);
+        this.logger.log(
+          `[GEMINI] AI initialized successfully with model: ${modelName}`,
+        );
       } catch (err) {
         this.logger.error(`[GEMINI] Failed to initialize: ${err}`);
       }
     } else {
-      this.logger.warn('[GEMINI] API key not configured - AI features disabled');
+      this.logger.warn(
+        '[GEMINI] API key not configured - AI features disabled',
+      );
     }
   }
 
@@ -517,8 +523,14 @@ export class AiService {
   /**
    * Calculate platform tokens from Gemini token usage (uses dynamic pricing from DB)
    */
-  async calculatePlatformTokens(geminiTokens: number, featureKey?: string): Promise<number> {
-    return this.pricingService.calculatePlatformTokens(geminiTokens, featureKey);
+  async calculatePlatformTokens(
+    geminiTokens: number,
+    featureKey?: string,
+  ): Promise<number> {
+    return this.pricingService.calculatePlatformTokens(
+      geminiTokens,
+      featureKey,
+    );
   }
 
   async generateSuggestions(
@@ -526,8 +538,14 @@ export class AiService {
     dto: SuggestRequestDto & { imageData?: { mimetype: string; data: string } },
   ): Promise<{
     suggestions: string[];
-    context: { knowledgeUsed: string[]; productsUsed: string[]; chatHistoryUsed: number; hasImage: boolean };
+    context: {
+      knowledgeUsed: string[];
+      productsUsed: string[];
+      chatHistoryUsed: number;
+      hasImage: boolean;
+    };
     tokenUsage: { geminiTokens: number; platformTokens: number };
+    matchedProducts?: { id: string; name: string; imageUrl: string | null }[];
   }> {
     if (!this.model) {
       throw new BadRequestException('AI service not configured');
@@ -565,7 +583,9 @@ export class AiService {
     );
 
     // 4. Call Gemini (with or without image)
-    this.logger.debug(`[GEMINI] Generating suggestions for message: "${dto.message?.substring(0, 50)}..."`);
+    this.logger.debug(
+      `[GEMINI] Generating suggestions for message: "${dto.message?.substring(0, 50)}..."`,
+    );
     this.logger.debug(`[GEMINI] Model initialized: ${!!this.model}`);
 
     try {
@@ -593,12 +613,17 @@ export class AiService {
       }
 
       const response = result.response.text();
-      this.logger.debug(`[GEMINI] Raw response: ${response?.substring(0, 200)}...`);
+      this.logger.debug(
+        `[GEMINI] Raw response: ${response?.substring(0, 200)}...`,
+      );
 
       // Get token usage from Gemini response
       const usageMetadata = result.response.usageMetadata;
       const geminiTokens = usageMetadata?.totalTokenCount || 0;
-      const platformTokens = await this.calculatePlatformTokens(geminiTokens, 'suggest');
+      const platformTokens = await this.calculatePlatformTokens(
+        geminiTokens,
+        'suggest',
+      );
 
       this.logger.debug(
         `[GEMINI] Token usage: ${geminiTokens} Gemini tokens = ${platformTokens} platform tokens`,
@@ -620,11 +645,18 @@ export class AiService {
           geminiTokens,
           platformTokens,
         },
+        matchedProducts: relevantProducts.map((p) => ({
+          id: p.id,
+          name: p.name,
+          imageUrl: p.imageUrl || null,
+        })),
       };
     } catch (error: any) {
       this.logger.error(`[GEMINI] API error: ${error?.message || error}`);
       this.logger.error(`[GEMINI] Error stack: ${error?.stack}`);
-      throw new BadRequestException(`Failed to generate suggestions: ${error?.message}`);
+      throw new BadRequestException(
+        `Failed to generate suggestions: ${error?.message}`,
+      );
     }
   }
 
@@ -715,10 +747,29 @@ export class AiService {
       .filter((w) => w.length > 2);
 
     // Common product-related keywords to boost relevance
-    const productKeywords = ['produk', 'harga', 'beli', 'order', 'pesan', 'jual', 'berapa', 'stock', 'stok', 'ready', 'ada', 'mau', 'cari', 'punya', 'jasa', 'layanan'];
+    const productKeywords = [
+      'produk',
+      'harga',
+      'beli',
+      'order',
+      'pesan',
+      'jual',
+      'berapa',
+      'stock',
+      'stok',
+      'ready',
+      'ada',
+      'mau',
+      'cari',
+      'punya',
+      'jasa',
+      'layanan',
+    ];
     const hasProductIntent = words.some((w) => productKeywords.includes(w));
 
-    this.logger.debug(`[PRODUCTS] Searching for user ${userId}, words: ${words.join(', ')}, hasProductIntent: ${hasProductIntent}`);
+    this.logger.debug(
+      `[PRODUCTS] Searching for user ${userId}, words: ${words.join(', ')}, hasProductIntent: ${hasProductIntent}`,
+    );
 
     // If message seems product-related, search products
     if (hasProductIntent || words.length === 0) {
@@ -744,7 +795,9 @@ export class AiService {
       qb.take(5);
 
       const products = await qb.getMany();
-      this.logger.debug(`[PRODUCTS] Found ${products.length} products: ${products.map(p => p.name).join(', ')}`);
+      this.logger.debug(
+        `[PRODUCTS] Found ${products.length} products: ${products.map((p) => p.name).join(', ')}`,
+      );
       return products;
     }
 
@@ -754,7 +807,9 @@ export class AiService {
       take: 3,
       order: { createdAt: 'DESC' },
     });
-    this.logger.debug(`[PRODUCTS] Fallback: ${fallbackProducts.length} products`);
+    this.logger.debug(
+      `[PRODUCTS] Fallback: ${fallbackProducts.length} products`,
+    );
     return fallbackProducts;
   }
 

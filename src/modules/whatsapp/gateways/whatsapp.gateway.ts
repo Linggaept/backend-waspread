@@ -585,11 +585,12 @@ export class WhatsAppGateway
       message: string;
       sentAt: Date;
       hasImage?: boolean;
+      hasProductImage?: boolean;
     },
   ) {
     this.server.to(`user:${userId}`).emit('auto-reply:sent', data);
     this.logger.debug(
-      `Auto-reply sent to ${data.phoneNumber}${data.hasImage ? ' (with image)' : ''}`,
+      `Auto-reply sent to ${data.phoneNumber}${data.hasImage ? ' (analyzed image)' : ''}${data.hasProductImage ? ' (with product image)' : ''}`,
     );
   }
 
