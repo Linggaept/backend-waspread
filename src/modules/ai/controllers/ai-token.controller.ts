@@ -19,6 +19,7 @@ import {
 import { JwtAuthGuard, RolesGuard } from '../../auth/guards';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { Public } from '../../auth/decorators/public.decorator';
 import { UserRole } from '../../../database/entities/user.entity';
 import { AiTokenService } from '../services/ai-token.service';
 import {
@@ -79,10 +80,11 @@ export class AiTokenController {
   }
 
   @Get('info')
+  @Public()
   @ApiOperation({
     summary: 'Get token info for user education',
     description:
-      'Returns what 1 platform token can do based on current pricing. Useful for landing pages and user education.',
+      'Returns what 1 platform token can do based on current pricing. Useful for landing pages and user education. No authentication required.',
   })
   @ApiResponse({
     status: 200,

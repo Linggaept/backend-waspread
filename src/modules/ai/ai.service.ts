@@ -20,6 +20,7 @@ import {
   ReplyTone,
 } from '../../database/entities/ai-settings.entity';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { Product } from '../../database/entities/product.entity';
 import {
   CreateKnowledgeDto,
   UpdateKnowledgeDto,
@@ -45,6 +46,8 @@ export class AiService {
     private readonly settingsRepository: Repository<AiSettings>,
     @InjectRepository(ChatMessage)
     private readonly chatMessageRepository: Repository<ChatMessage>,
+    @InjectRepository(Product)
+    private readonly productRepository: Repository<Product>,
     private readonly configService: ConfigService,
     private readonly pricingService: AiTokenPricingService,
   ) {
@@ -523,7 +526,7 @@ export class AiService {
     dto: SuggestRequestDto & { imageData?: { mimetype: string; data: string } },
   ): Promise<{
     suggestions: string[];
-    context: { knowledgeUsed: string[]; chatHistoryUsed: number; hasImage: boolean };
+    context: { knowledgeUsed: string[]; productsUsed: string[]; chatHistoryUsed: number; hasImage: boolean };
     tokenUsage: { geminiTokens: number; platformTokens: number };
   }> {
     if (!this.model) {
@@ -542,13 +545,20 @@ export class AiService {
       dto.message,
     );
 
-    // 2. Get last 10 chat messages for context
+    // 2. Get relevant products based on message keywords
+    const relevantProducts = await this.searchRelevantProducts(
+      userId,
+      dto.message,
+    );
+
+    // 3. Get last 5 chat messages for context
     const chatHistory = await this.getChatHistory(userId, dto.phoneNumber, 5);
 
-    // 3. Build prompt
+    // 4. Build prompt
     const prompt = this.buildPrompt(
       settings,
       relevantKnowledge,
+      relevantProducts,
       chatHistory,
       dto.message,
       !!dto.imageData, // Flag that image is present
@@ -602,6 +612,7 @@ export class AiService {
         suggestions,
         context: {
           knowledgeUsed: relevantKnowledge.map((k) => k.title),
+          productsUsed: relevantProducts.map((p) => p.name),
           chatHistoryUsed: chatHistory.length,
           hasImage: !!dto.imageData,
         },
@@ -692,9 +703,65 @@ export class AiService {
     });
   }
 
+  private async searchRelevantProducts(
+    userId: string,
+    message: string,
+  ): Promise<Product[]> {
+    // Extract keywords from message
+    const words = message
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+
+    // Common product-related keywords to boost relevance
+    const productKeywords = ['produk', 'harga', 'beli', 'order', 'pesan', 'jual', 'berapa', 'stock', 'stok', 'ready', 'ada', 'mau', 'cari', 'punya', 'jasa', 'layanan'];
+    const hasProductIntent = words.some((w) => productKeywords.includes(w));
+
+    this.logger.debug(`[PRODUCTS] Searching for user ${userId}, words: ${words.join(', ')}, hasProductIntent: ${hasProductIntent}`);
+
+    // If message seems product-related, search products
+    if (hasProductIntent || words.length === 0) {
+      const qb = this.productRepository.createQueryBuilder('p');
+      qb.where('p.userId = :userId', { userId });
+      qb.andWhere('p.isHidden = false');
+
+      if (words.length > 0) {
+        // Build OR conditions for product name/description matching
+        const conditions: string[] = [];
+        const params: Record<string, any> = { userId };
+
+        words.forEach((word, i) => {
+          conditions.push(`p.name ILIKE :word${i}`);
+          conditions.push(`p.description ILIKE :word${i}`);
+          params[`word${i}`] = `%${word}%`;
+        });
+
+        qb.andWhere(`(${conditions.join(' OR ')})`, params);
+      }
+
+      qb.orderBy('p.createdAt', 'DESC');
+      qb.take(5);
+
+      const products = await qb.getMany();
+      this.logger.debug(`[PRODUCTS] Found ${products.length} products: ${products.map(p => p.name).join(', ')}`);
+      return products;
+    }
+
+    // Fallback: always return some products if user has any (for general queries)
+    const fallbackProducts = await this.productRepository.find({
+      where: { userId, isHidden: false },
+      take: 3,
+      order: { createdAt: 'DESC' },
+    });
+    this.logger.debug(`[PRODUCTS] Fallback: ${fallbackProducts.length} products`);
+    return fallbackProducts;
+  }
+
   private buildPrompt(
     settings: AiSettings,
     knowledge: AiKnowledgeBase[],
+    products: Product[],
     chatHistory: ChatMessage[],
     incomingMessage: string,
     hasImage: boolean = false,
@@ -717,6 +784,25 @@ export class AiService {
       knowledge.length > 0
         ? knowledge.map((k) => `- ${k.title}: ${k.content}`).join('\n')
         : 'Tidak ada data referensi khusus.';
+
+    // Format products with price
+    const formatPrice = (price: number, currency: string) => {
+      if (currency === 'IDR') {
+        return `Rp ${Number(price).toLocaleString('id-ID')}`;
+      }
+      return `${currency} ${Number(price).toLocaleString()}`;
+    };
+
+    const productsText =
+      products.length > 0
+        ? products
+            .map((p) => {
+              const priceStr = formatPrice(p.price, p.currency);
+              const desc = p.description ? ` - ${p.description}` : '';
+              return `- ${p.name}: ${priceStr}${desc}`;
+            })
+            .join('\n')
+        : '';
 
     const historyText =
       chatHistory.length > 0
@@ -746,16 +832,35 @@ CATATAN: Pelanggan juga mengirim GAMBAR bersama pesan ini.
         ? 'PESAN PELANGGAN:\n[Pelanggan mengirim gambar tanpa teks]'
         : 'PESAN PELANGGAN:\n[Tidak ada pesan]';
 
+    // Build data sections
+    let dataSection = '';
+    let productInstruction = '';
+
+    if (productsText) {
+      dataSection += `\n📦 DAFTAR PRODUK/JASA TERSEDIA:\n${productsText}\n`;
+      productInstruction = `
+⚠️ WAJIB: Jika pelanggan tanya tentang produk/jasa/harga, HARUS sebutkan NAMA PRODUK dan HARGA dari daftar di atas!
+Contoh: "Untuk Joki Website harganya Rp 200.000 kak" atau "Ada Joki Website Rp 200rb kak, mau order?"`;
+    }
+
+    if (knowledge.length > 0) {
+      dataSection += `\n📋 INFORMASI TAMBAHAN:\n${knowledgeText}`;
+    }
+
+    if (!productsText && knowledge.length === 0) {
+      dataSection = '\nTidak ada data referensi khusus.';
+    }
+
     return `${businessInfo}${businessDesc}
 
 PANDUAN MENJAWAB:
 - Gaya bahasa: ${toneGuide[settings.replyTone]}
 - Singkat, jelas, dan membantu
-- Fokus ke closing/konversi jika relevan
+- Fokus ke closing/konversi
 - Maksimal 150 karakter per opsi
+${productInstruction}
 ${imageContext}
-DATA REFERENSI:
-${knowledgeText}
+${dataSection}
 
 RIWAYAT CHAT TERAKHIR:
 ${historyText}

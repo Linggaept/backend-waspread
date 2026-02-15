@@ -40,7 +40,7 @@ npm run docker:logs             # Follow logs
 **Entry Point**: `src/main.ts` - Sets up global prefix `/api`, Swagger at `/docs`, validation pipes, exception filters, and interceptors.
 
 **Module Structure** (`src/modules/`):
-- `auth/` - JWT authentication with Passport, role-based guards (ADMIN/USER)
+- `auth/` - JWT authentication with Passport, role-based guards (ADMIN/USER), feature-based guards (`FeatureGuard` for subscription feature access)
 - `users/` - User management (Admin CRUD)
 - `packages/` - Subscription package definitions
 - `payments/` - Midtrans payment gateway integration
@@ -49,7 +49,7 @@ npm run docker:logs             # Follow logs
 - `blasts/` - Bulk message campaigns with BullMQ queue processing (`processors/blast.processor.ts`)
 - `chats/` - Conversation management with full message history, bidirectional messaging, and blast campaign linking
 - `copywriting/` - AI-powered marketing message generation using Google Gemini (multi-tone, multi-variation)
-- `ai/` - AI-powered reply suggestions with knowledge base (per-user business context, tone settings, keyword-based retrieval)
+- `ai/` - AI-powered reply suggestions with knowledge base (per-user business context, tone settings, keyword-based retrieval). Sub-services: `AiTokenService` (token balance), `AiTokenPricingService` (dynamic pricing), `AutoReplyService` (auto-reply orchestration)
 - `contacts/` - Contact list management for blast recipients
 - `templates/` - Message template management for reusable blast content
 - `uploads/` - File uploads with Cloudflare R2 storage and image compression (Sharp)
@@ -226,7 +226,7 @@ Environment variables configured via `.env` (see `.env.example`):
 - `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 40)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
 - `GEMINI_API_KEY` - Google Gemini API key for AI copywriting (feature disabled if not set)
-- `GEMINI_MODEL` - Gemini model name (default: `gemini-2.5-flash`)
+- `GEMINI_MODEL` - Gemini model name (default: `gemini-2.0-flash`)
 - `WA_SYNC_FULL_HISTORY` - Sync all WhatsApp history (default: false, WARNING: high memory)
 - `WA_SYNC_HISTORY_DAYS` - Days of history to sync (default: 7)
 - `CHAT_MESSAGE_RETENTION_DAYS` - Auto-delete old messages (default: 30, 0 to disable)

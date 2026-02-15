@@ -15,6 +15,7 @@ import { AutoReplyProcessor } from './processors/auto-reply.processor';
 import { AiKnowledgeBase } from '../../database/entities/ai-knowledge-base.entity';
 import { AiSettings } from '../../database/entities/ai-settings.entity';
 import { ChatMessage } from '../../database/entities/chat-message.entity';
+import { Product } from '../../database/entities/product.entity';
 import { AutoReplyBlacklist } from '../../database/entities/auto-reply-blacklist.entity';
 import { AutoReplyLog } from '../../database/entities/auto-reply-log.entity';
 import { BlastMessage } from '../../database/entities/blast.entity';
@@ -42,6 +43,7 @@ import { FeatureGuard, RolesGuard } from '../auth/guards';
       AiTokenPurchase,
       AiTokenUsage,
       AiTokenPricing,
+      Product,
     ]),
     BullModule.registerQueue({
       name: 'auto-reply',
