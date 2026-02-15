@@ -394,10 +394,9 @@ export class AiService {
         if (rowNumber === 1) return; // Skip header
 
         try {
-          const title = String(row.getCell(titleCol + 1).value || '').trim();
-          const content = String(
-            row.getCell(contentCol + 1).value || '',
-          ).trim();
+          // Note: headers array is 1-indexed (from eachCell), so use column index directly
+          const title = String(row.getCell(titleCol).value || '').trim();
+          const content = String(row.getCell(contentCol).value || '').trim();
 
           if (!title || !content) {
             errors.push(`Row ${rowNumber}: Missing title or content`);
@@ -408,7 +407,7 @@ export class AiService {
           // Parse category
           let category = KnowledgeCategory.CUSTOM;
           if (categoryCol !== -1) {
-            const catValue = String(row.getCell(categoryCol + 1).value || '')
+            const catValue = String(row.getCell(categoryCol).value || '')
               .toLowerCase()
               .trim();
             if (
@@ -423,7 +422,7 @@ export class AiService {
           // Parse keywords
           let keywords: string[] = [];
           if (keywordsCol !== -1) {
-            const kwValue = String(row.getCell(keywordsCol + 1).value || '');
+            const kwValue = String(row.getCell(keywordsCol).value || '');
             keywords = kwValue
               .split(/[,;]/)
               .map((k) => k.trim().toLowerCase())
