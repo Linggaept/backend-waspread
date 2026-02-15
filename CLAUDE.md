@@ -65,7 +65,7 @@ npm run docker:logs             # Follow logs
 - `settings/` - User settings management
 
 **Infrastructure** (`src/`):
-- `queue/queue.module.ts` - BullMQ/Redis connection setup (queues: `blast`, `leads`, `followup`, `contact-followup`)
+- `queue/queue.module.ts` - BullMQ/Redis connection setup (queues: `blast`, `leads`, `followup`, `contact-followup`, `auto-reply`)
 - `config/` - Environment configuration loaders and validation
 - `database/data-source.ts` - TypeORM data source for migrations
 
@@ -74,8 +74,14 @@ npm run docker:logs             # Follow logs
 - `blast.entity.ts` - Contains both Blast and BlastMessage entities, plus status enums (BlastStatus, MessageStatus, MessageErrorType)
 - BlastReply - Stores incoming replies to blast messages
 - ChatMessage - Full conversation history with direction (incoming/outgoing), optional blast linking, read status
-- AiSettings - Per-user AI configuration (tone, business context, enabled state)
+- AiSettings - Per-user AI configuration (tone, business context, enabled state, auto-reply settings)
 - AiKnowledgeBase - User's knowledge entries for AI context (categories: product, faq, promo, policy, custom)
+- AiTokenPackage - Purchasable AI token packages with bonus tokens
+- AiTokenPricing - Dynamic pricing configuration (divisor, markup, minimum charge per feature)
+- AiTokenUsage - Tracks token consumption per feature (auto_reply, auto_reply_image, suggest, copywriting, etc.)
+- AiTokenPurchase - Purchase history for AI token packages
+- AutoReplyLog - Logs of auto-reply attempts with status (queued/sent/failed/skipped)
+- AutoReplyBlacklist - Phone numbers excluded from auto-reply per user
 - LeadScore - Lead scoring per phone number (hot/warm/cold), tracks keyword matches, response time, engagement
 - LeadScoreSettings - Configurable scoring thresholds per user
 - ConversationFunnel - Tracks leads through stages: blast_sent → delivered → replied → interested → negotiating → closed_won/lost
@@ -157,6 +163,24 @@ npm run docker:logs             # Follow logs
 - Bulk import knowledge via Excel/CSV (columns: title, content, category, keywords)
 - Returns 3 suggested replies per request
 
+**AI Token System**:
+- Separate purchasable AI token balance (independent from subscription message quota)
+- Token packages with bonus tokens for larger purchases, paid via Midtrans
+- Dynamic pricing: Gemini API tokens converted to platform tokens via divisor + markup
+- Feature-specific token costs: auto_reply (1), auto_reply_image (3), copywriting (2), suggest (1), analytics (3)
+- Subscription packages can include bonus AI tokens
+- Decimal token amounts supported for fine-grained pricing
+
+**Auto-Reply** (requires AI tokens):
+- Automated AI-powered replies to incoming WhatsApp messages
+- Supports both text and image messages (vision-based analysis)
+- Configurable: working hours, delay range (min/max seconds), cooldown per contact
+- Blacklist support to exclude specific phone numbers
+- Fallback message when AI fails or tokens exhausted
+- Processed via BullMQ queue (`auto-reply`) for async execution
+- Status tracking: QUEUED → SENT/FAILED/SKIPPED
+- WebSocket events: `auto-reply:sent`, `auto-reply:skipped`
+
 **Lead Scoring**:
 - Automatic scoring based on keyword matches (configurable per user), response time, engagement, and recency
 - Three levels: HOT, WARM, COLD with configurable thresholds
@@ -199,7 +223,7 @@ Environment variables configured via `.env` (see `.env.example`):
 - `APP_PORT` - Server port (Docker uses 2004, .env.example defaults to 3000)
 - `LOG_LEVEL` - Logging level (default: debug in development, limited in production)
 - `R2_*` - Cloudflare R2 storage (falls back to local `uploads/` if not set)
-- `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 20)
+- `MAX_WA_SESSIONS` - Max concurrent WhatsApp sessions (default: 40)
 - `WA_IDLE_TIMEOUT_MINUTES` - Auto-disconnect idle sessions (default: 15)
 - `GEMINI_API_KEY` - Google Gemini API key for AI copywriting (feature disabled if not set)
 - `GEMINI_MODEL` - Gemini model name (default: `gemini-2.5-flash`)

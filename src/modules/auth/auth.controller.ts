@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Patch,
   UseGuards,
   Headers,
 } from '@nestjs/common';
@@ -93,6 +94,16 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@CurrentUser('id') userId: string) {
     return this.authService.getProfile(userId);
+  }
+
+  @Patch('complete-tutorial')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Mark tutorial as completed (isFirstTime = false)' })
+  @ApiResponse({ status: 200, description: 'Tutorial completed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async completeTutorial(@CurrentUser('id') userId: string) {
+    return this.authService.completeTutorial(userId);
   }
 
   @Post('logout')

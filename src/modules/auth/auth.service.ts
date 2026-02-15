@@ -157,6 +157,11 @@ export class AuthService {
     return this.usersService.excludePassword(user);
   }
 
+  async completeTutorial(userId: string) {
+    const user = await this.usersService.completeTutorial(userId);
+    return this.usersService.excludePassword(user);
+  }
+
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const user = await this.usersService.findByEmail(forgotPasswordDto.email);
 

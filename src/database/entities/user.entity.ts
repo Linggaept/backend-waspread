@@ -52,6 +52,9 @@ export class User {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   aiTokenBalance: number;
 
+  @Column({ default: true })
+  isFirstTime: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

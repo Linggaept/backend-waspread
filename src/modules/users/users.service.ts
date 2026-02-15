@@ -114,6 +114,12 @@ export class UsersService {
     await this.userRepository.save(user);
   }
 
+  async completeTutorial(id: string): Promise<User> {
+    const user = await this.findOne(id);
+    user.isFirstTime = false;
+    return this.userRepository.save(user);
+  }
+
   // Helper to exclude password from response
   excludePassword(user: User): Omit<User, 'password'> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
